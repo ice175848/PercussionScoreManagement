@@ -1,0 +1,31 @@
+name: percussion_score_management
+description: 打擊樂器與樂譜管理系統 (Percussion Score Management)
+publish_to: "none"
+
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 狀態管理（可依喜好改成 riverpod / bloc 等）
+  provider: ^6.0.5
+
+  # 本地資料庫（後續可用來存使用者輸入的樂曲與樂器資訊）
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+
+
+
