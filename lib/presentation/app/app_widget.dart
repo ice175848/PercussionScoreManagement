@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../pieces/pages/piece_list_page.dart';
+import '../pieces/pages/performance_list_page.dart';
 
 class AppWidget extends StatelessWidget {
   const AppWidget({super.key});
@@ -13,7 +13,7 @@ class AppWidget extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const PieceListPage(),
+      home: const PerformanceListPage(),
     );
   }
 }

@@ -14,9 +14,11 @@ dependencies:
   # 狀態管理（可依喜好改成 riverpod / bloc 等）
   provider: ^6.0.5
 
-  # 本地資料庫（後續可用來存使用者輸入的樂曲與樂器資訊）
-  hive: ^2.2.3
-  hive_flutter: ^1.1.0
+  # HTTP 請求（存取 Google Apps Script / Google 試算表 API）
+  http: ^1.2.0
+
+  # 開啟外部瀏覽器或 App（例如開啟 Google 表單）
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

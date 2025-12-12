@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 
 import '../../../domain/entities/score_piece.dart';
-import '../pages/piece_detail_page.dart';
 
 class PieceCard extends StatelessWidget {
   final ScorePiece piece;
+  final VoidCallback? onTap;
 
-  const PieceCard({super.key, required this.piece});
+  const PieceCard({
+    super.key,
+    required this.piece,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -22,17 +26,12 @@ class PieceCard extends StatelessWidget {
             if (parts.isNotEmpty) '分部數量：${parts.length}',
           ].join(' · '),
         ),
-        onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => PieceDetailPage(piece: piece),
-            ),
-          );
-        },
+        onTap: onTap,
       ),
     );
   }
 }
+
 
 
 
