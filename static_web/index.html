@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Percussion Score Management</title>
+    <meta name="description" content="打擊樂器與樂譜管理系統">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-blobs">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="app-container glass-panel">
+        <header>
+            <div class="logo">
+                <span class="icon">🥁</span>
+                <h1>Percussion <span class="highlight">Sync</span></h1>
+            </div>
+            <nav>
+                <button class="nav-btn active" data-target="view-performances">演出清單</button>
+                <button class="nav-btn" data-target="view-summary">樂器總表</button>
+                <button class="nav-btn" data-target="view-instruments">樂器庫設定</button>
+            </nav>
+        </header>
+
+        <main id="main-content">
+            <!-- Loading State -->
+            <div id="loader" class="loader-container">
+                <div class="spinner"></div>
+                <p>同步樂譜資料中...</p>
+            </div>
+
+            <!-- View: Performances -->
+            <section id="view-performances" class="view hidden">
+                <div class="view-header">
+                    <h2>近期演出</h2>
+                    <button class="action-btn primary" onclick="app.showCreateModal()">＋ 新增曲目/分部</button>
+                </div>
+                <div class="performances-grid" id="performances-container">
+                    <!-- Cards will be injected here -->
+                </div>
+            </section>
+
+            <!-- View: Summary -->
+            <section id="view-summary" class="view hidden">
+                 <div class="view-header">
+                    <h2>樂器統整表</h2>
+                    <select id="summary-perf-select" class="glass-select">
+                        <option value="">請選擇演出...</option>
+                    </select>
+                </div>
+                <div id="summary-container" class="summary-content">
+                    <!-- Summary table injected here -->
+                </div>
+            </section>
+
+            <!-- View: Global Instrument Pool Settings -->
+            <section id="view-instruments" class="view hidden">
+                <div class="view-header">
+                    <h2>樂器庫設定</h2>
+                </div>
+                <div class="glass-panel" style="padding: 24px; margin-top: 16px;">
+                    <p style="color: var(--text-muted); margin-bottom: 20px;">
+                        在這裡管理全域樂器庫。新增的樂器會自動出現在「新增配置」時的備用樂器庫中。
+                    </p>
+                    <div class="add-inst-row" style="margin-bottom: 24px; display: flex; gap: 8px;">
+                        <input type="text" id="setting-new-inst" placeholder="輸入新樂器名稱..." style="flex-grow: 1;">
+                        <button class="action-btn primary" onclick="app.addGlobalInstrument()">新增至樂器庫</button>
+                    </div>
+                    <div id="global-instruments-pool" class="chip-container" style="flex-wrap: wrap; overflow: visible; gap: 8px;">
+                        <!-- Global instrument tags rendered by JS -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Interactive Builder Modal -->
+    <div id="crud-modal" class="modal hidden">
+        <div class="modal-content glass-panel builder-modal">
+            <div class="modal-header">
+                <h3 id="modal-title">樂譜配置建立器</h3>
+                <button class="close-btn" onclick="app.closeModal()">✕</button>
+            </div>
+            
+            <div class="builder-layout">
+                <!-- 基本資訊與分部 -->
+                <div class="builder-section">
+                    <div class="form-group autocomplete">
+                        <label>演出名稱</label>
+                        <input type="text" id="input-perf" required placeholder="選擇或輸入..." autocomplete="off">
+                        <div id="autocomplete-perf" class="autocomplete-items hidden"></div>
+                    </div>
+                    <div class="form-group autocomplete">
+                        <label>曲目名稱</label>
+                        <input type="text" id="input-title" required placeholder="選擇或輸入..." autocomplete="off">
+                        <div id="autocomplete-title" class="autocomplete-items hidden"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>選擇分部 (Part)</label>
+                        <div id="part-chips" class="chip-container">
+                            <!-- Existing part chips will be injected here -->
+                        </div>
+                        <input type="text" id="input-new-part" placeholder="或輸入新分部..." style="margin-top: 8px;">
+                    </div>
+                </div>
+
+                <!-- 樂器拖曳區 -->
+                <div class="builder-section">
+                    <label>此分部的樂器清單 (拖曳排序 / 加入)</label>
+                    <div class="dnd-zone selected-zone" id="selected-instruments">
+                        <!-- Drop target -->
+                    </div>
+
+                    <label style="margin-top: 16px;">樂器庫 (拖曳或點擊以加入)</label>
+                    <div class="dnd-zone pool-zone" id="available-instruments">
+                        <!-- Pool of available instruments -->
+                    </div>
+                    <div class="add-inst-row">
+                        <input type="text" id="input-new-inst" placeholder="+ 手動建立並加入新樂器">
+                        <button class="action-btn secondary mini" onclick="app.addNewInstrument()">加入</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="button" class="action-btn secondary" onclick="app.closeModal()">取消</button>
+                <button type="button" class="action-btn primary" onclick="app.submitBuilder()">儲存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SortableJS for Drag and Drop -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="app.js?v=6"></script>
+</body>
+</html>
