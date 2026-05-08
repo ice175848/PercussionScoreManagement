@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <div class="background-blobs">
@@ -24,6 +24,7 @@
                 <button class="nav-btn active" data-target="view-performances">演出清單</button>
                 <button class="nav-btn" data-target="view-summary">樂器總表</button>
                 <button class="nav-btn" data-target="view-instruments">樂器庫設定</button>
+                <button class="nav-btn" data-target="view-settings">⚙️ 系統設定</button>
             </nav>
         </header>
 
@@ -73,6 +74,31 @@
                     </div>
                     <div id="global-instruments-pool" class="chip-container" style="flex-wrap: wrap; overflow: visible; gap: 8px;">
                         <!-- Global instrument tags rendered by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- View: System Settings -->
+            <section id="view-settings" class="view hidden">
+                <div class="view-header">
+                    <h2>系統設定</h2>
+                </div>
+                <div class="glass-panel" style="padding: 24px; margin-top: 16px;">
+                    <p style="color: var(--text-muted); margin-bottom: 20px;">
+                        請在此設定您的專屬資料庫連結。這項設定只會儲存在您的瀏覽器中，不需修改任何程式碼。
+                    </p>
+                    
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label>Google 試算表網址 (必填)</label>
+                        <input type="text" id="setting-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+                        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">請貼上您的專屬 Google 試算表網址。請確認該試算表已開啟「知道連結的任何人均可編輯」權限。</p>
+                        <div style="margin-top: 12px;">
+                            <button class="action-btn secondary mini" id="btn-open-sheet" onclick="app.openSheet()">🔗 快速開啟我的資料庫</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 32px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px; text-align: right;">
+                        <button class="action-btn primary" onclick="app.saveSettings()">儲存設定並載入資料</button>
                     </div>
                 </div>
             </section>
@@ -137,6 +163,6 @@
 
     <!-- SortableJS for Drag and Drop -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=10"></script>
 </body>
 </html>

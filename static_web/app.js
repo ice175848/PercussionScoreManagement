@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxeCbGZX1Bt0qYHBCmd5K7MdryrVI6x5mZOWMcHjxwu353e2Il6ctea9EZ3xkkuCQo/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwV45Ba8kSNBPv_kzRMujzQOAIdeQ6ObMcsN9zVuPFqf4Qw2tk1hehZCmQyMGvDV48/exec';
 
 const App = {
     data: {
@@ -8,7 +8,15 @@ const App = {
     init() {
         this.cacheDOM();
         this.bindEvents();
-        this.fetchData();
+        this.loadSettings();
+
+        if (!this.getSheetId()) {
+            // Force user to settings page if sheet ID is missing
+            this.switchView('view-settings');
+            this.showLoader(false);
+        } else {
+            this.fetchData();
+        }
     },
 
     cacheDOM() {
@@ -38,6 +46,49 @@ const App = {
 
         this.setupAutocompleteEvents();
         this.initBuilder();
+    },
+
+    loadSettings() {
+        const sheetUrlInput = document.getElementById('setting-sheet-url');
+        if (sheetUrlInput) sheetUrlInput.value = localStorage.getItem('SHEET_URL') || '';
+    },
+
+    saveSettings() {
+        const sheetUrl = document.getElementById('setting-sheet-url').value.trim();
+
+        if (!sheetUrl) {
+            alert('請輸入 Google 試算表網址！');
+            return;
+        }
+
+        localStorage.setItem('SHEET_URL', sheetUrl);
+
+        if (!this.getSheetId()) {
+            alert('網址格式錯誤，無法擷取試算表 ID。請確保網址包含 /d/.../edit');
+            return;
+        }
+
+        alert('設定已儲存！將為您重新載入資料。');
+        
+        // Show loader and switch to performances view while fetching
+        this.showLoader(true);
+        this.switchView('view-performances');
+        this.fetchData();
+    },
+
+    getSheetId() {
+        const url = localStorage.getItem('SHEET_URL') || '';
+        const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+        return match ? match[1] : null;
+    },
+
+    openSheet() {
+        const sheetUrl = localStorage.getItem('SHEET_URL');
+        if (sheetUrl) {
+            window.open(sheetUrl, '_blank');
+        } else {
+            alert('您尚未設定試算表網址。');
+        }
     },
 
     setupAutocompleteEvents() {
@@ -199,10 +250,13 @@ const App = {
     },
 
     async fetchData() {
+        const sheetId = this.getSheetId();
+        if (!sheetId) return;
+
         try {
             this.showLoader(true);
-            // Append a timestamp to avoid Google Apps Script caching the GET request
-            const url = API_URL + '?t=' + new Date().getTime();
+            // Append a timestamp and sheetId
+            const url = API_URL + '?sheetId=' + sheetId + '&t=' + new Date().getTime();
             const response = await fetch(url);
             const json = await response.json();
             this.processData(json);
@@ -269,9 +323,12 @@ const App = {
             if (!partName) return; // If no part, just the piece is registered
 
             if (!piece.partsMap.has(partName)) {
-                piece.partsMap.set(partName, { name: partName, instruments: [] });
+                piece.partsMap.set(partName, { name: partName, instruments: [], rowIndexes: [] });
             }
             const part = piece.partsMap.get(partName);
+            
+            // Record the row index for this specific entry so we can delete/edit it later
+            if (row._row) part.rowIndexes.push(row._row);
 
             if (row.instrument_name !== null && row.instrument_name !== undefined && String(row.instrument_name).trim() !== '') {
                 part.instruments.push({
@@ -314,10 +371,34 @@ const App = {
                 let composerText = piece.composer ? piece.composer + ' 曲' : '';
                 let metaText = [composerText, `${partsCount} 個分部`].filter(Boolean).join(' • ');
 
+                let partsHtml = '<div class="parts-grid">';
+                piece.parts.forEach(part => {
+                    let instsText = part.instruments.map(i => i.name + (i.remark ? ` (${i.remark})` : '')).join(', ');
+                    if(!instsText) instsText = '<span style="color:var(--text-muted)">無設定樂器</span>';
+                    // Convert rowIndexes to JSON string to pass it safely in the onclick handler
+                    const rowIdxStr = JSON.stringify(part.rowIndexes);
+                    partsHtml += `
+                        <div class="part-card" onclick="event.stopPropagation(); app.editPart('${perf.name}', '${piece.id}', '${part.name}', ${rowIdxStr})" style="cursor: pointer;" title="點擊編輯此分部">
+                            <div class="part-name">${part.name} <span style="float:right; opacity:0.5;">✏️</span></div>
+                            <div class="part-insts">${instsText}</div>
+                        </div>
+                    `;
+                });
+                partsHtml += '</div>';
+
                 piecesHtml += `
-                    <li class="piece-item" onclick="app.showPieceDetail('${perf.name}', '${piece.id}')">
-                        <span class="piece-title">${piece.title}</span>
-                        <span class="piece-meta">${metaText}</span>
+                    <li class="piece-item">
+                        <div class="piece-summary" onclick="app.togglePieceDetail(this)">
+                            <span class="piece-title">${piece.title}</span>
+                            <span class="piece-meta">${metaText}</span>
+                        </div>
+                        <div class="piece-detail-wrapper">
+                            <div class="piece-detail">
+                                <div class="piece-detail-inner">
+                                    ${partsHtml}
+                                </div>
+                            </div>
+                        </div>
                     </li>
                 `;
             });
@@ -416,8 +497,11 @@ const App = {
         this.resetBuilder();
     },
 
-    showPieceDetail(perfName, pieceId) {
-        alert(`這裡預留給「曲目詳細檢視」功能！\n點擊了：${perfName} - ${pieceId}\n之後可以在這裡實作展開查看每個分部的所有樂器，甚至是編輯/刪除按鈕。`);
+    togglePieceDetail(summaryElement) {
+        const wrapper = summaryElement.nextElementSibling;
+        if (wrapper && wrapper.classList.contains('piece-detail-wrapper')) {
+            wrapper.classList.toggle('expanded');
+        }
     },
 
     // --- Interactive Builder Logic ---
@@ -450,6 +534,8 @@ const App = {
     },
 
     resetBuilder() {
+        this.editingRowIndexes = null; // Clear edit mode
+        
         document.getElementById('input-perf').value = '';
         document.getElementById('input-title').value = '';
         document.getElementById('input-new-part').value = '';
@@ -462,6 +548,35 @@ const App = {
         // Setup change listeners to dynamically update options if needed
         document.getElementById('input-perf').onchange = () => this.renderBuilderOptions();
         document.getElementById('input-title').onchange = () => this.renderBuilderOptions();
+    },
+
+    editPart(perfName, pieceId, partName, rowIndexes) {
+        this.showModal("編輯樂譜配置");
+        this.resetBuilder(); // resets form and editingRowIndexes
+        
+        // Find the performance, piece, and part data
+        const perf = this.data.performances.find(p => p.name === perfName);
+        const piece = perf ? perf.pieces.find(p => p.id === pieceId) : null;
+        const part = piece ? piece.parts.find(p => p.name === partName) : null;
+        
+        if (!part) return;
+
+        // Set edit mode data
+        this.editingRowIndexes = rowIndexes;
+
+        // Pre-fill the form
+        document.getElementById('input-perf').value = perf.name;
+        document.getElementById('input-title').value = piece.title;
+        document.getElementById('input-new-part').value = part.name;
+
+        this.renderBuilderOptions();
+
+        // Pre-fill selected instruments
+        const selectedZone = document.getElementById('selected-instruments');
+        selectedZone.innerHTML = ''; // clear default empty
+        part.instruments.forEach(inst => {
+            this.createInstrumentTag(inst.name, selectedZone, false);
+        });
     },
 
     renderBuilderOptions() {
@@ -547,17 +662,31 @@ const App = {
         submitBtn.disabled = true;
 
         try {
+            // If we are in edit mode, we must first delete the existing rows for this part
+            // Delete them in DESCENDING order of their row index to avoid shifting issues!
+            if (this.editingRowIndexes && this.editingRowIndexes.length > 0) {
+                const sortedIndexes = [...this.editingRowIndexes].sort((a, b) => b - a);
+                for (const rIdx of sortedIndexes) {
+                    await this.postData({
+                        action: 'delete',
+                        row_index: rIdx
+                    });
+                }
+            }
+
             // Since the API creates one row per instrument, if there are multiple instruments,
-            // we must send them in sequence (or modify backend, but sequence is safer).
+            // we must send them in sequence
             if (instruments.length === 0) {
                 // Just create part
                 await this.postData({
+                    action: 'create',
                     performance_name: perfName, title: title, part_name: partName,
                     instrument_name: '', instrument_remark: ''
                 });
             } else {
                 for (const instName of instruments) {
                     await this.postData({
+                        action: 'create',
                         performance_name: perfName, title: title, part_name: partName,
                         instrument_name: instName, instrument_remark: ''
                     });
@@ -580,11 +709,17 @@ const App = {
     },
 
     async postData(payload) {
+        const sheetId = this.getSheetId();
+        if (!sheetId) {
+            alert('尚未設定試算表網址，無法寫入資料。');
+            return;
+        }
+
         try {
+            const dataWithSheet = { ...payload, sheetId: sheetId };
             await fetch(API_URL, {
                 method: 'POST',
-                mode: 'no-cors', // Tells browser not to enforce CORS checks (response will be opaque)
-                body: JSON.stringify(payload)
+                body: JSON.stringify(dataWithSheet)
             });
         } catch (e) {
             console.warn('Opaque POST threw an error (usually expected due to GAS 302 redirect):', e);
