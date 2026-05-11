@@ -53,7 +53,7 @@ const App = {
         if (sheetUrlInput) sheetUrlInput.value = localStorage.getItem('SHEET_URL') || '';
     },
 
-    saveSettings() {
+    async saveSettings() {
         const sheetUrl = document.getElementById('setting-sheet-url').value.trim();
 
         if (!sheetUrl) {
@@ -67,11 +67,23 @@ const App = {
             alert('網址格式錯誤，無法擷取試算表 ID。請確保網址包含 /d/.../edit');
             return;
         }
+        
+        // Show loader
+        this.showLoader(true);
+
+        try {
+            // Automatically initialize the spreadsheet format
+            await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action: 'INIT', sheetId: this.getSheetId() })
+            });
+        } catch (e) {
+            console.warn('Initialization request failed:', e);
+        }
 
         alert('設定已儲存！將為您重新載入資料。');
         
-        // Show loader and switch to performances view while fetching
-        this.showLoader(true);
+        // Switch to performances view and fetch
         this.switchView('view-performances');
         this.fetchData();
     },

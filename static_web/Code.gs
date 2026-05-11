@@ -90,6 +90,44 @@ function doPost(e) {
   lock.tryLock(10000);
 
   try {
+    if (action === 'INIT') {
+      const ss = getSpreadsheet_(customId);
+      let instSheet = ss.getSheetByName('樂器庫');
+      let dataSheet = ss.getSheetByName(DATA_SHEET_NAME);
+      
+      // 1. 處理樂器庫
+      if (!instSheet) {
+        instSheet = ss.insertSheet('樂器庫', 0);
+      }
+      // 確保有標題
+      if (!instSheet.getRange('A1').getValue()) {
+        instSheet.getRange('A1').setValue('樂器名稱');
+      }
+
+      // 2. 處理資料表
+      if (!dataSheet) {
+        // 嘗試找尋預設的 Sheet1 或 工作表1 重新命名
+        let defaultSheet = ss.getSheets().find(s => s.getName() === '工作表1' || s.getName() === 'Sheet1');
+        if (defaultSheet) {
+          defaultSheet.setName(DATA_SHEET_NAME);
+          dataSheet = defaultSheet;
+        } else {
+          dataSheet = ss.insertSheet(DATA_SHEET_NAME, 1);
+        }
+      }
+      
+      // 寫入標題列 (如果第一列是空的)
+      if (!dataSheet.getRange('A1').getValue()) {
+        const headers = ['performance_name', 'piece_id', 'title', 'composer', 'arranger', 'part_name', 'instrument_name', 'instrument_remark'];
+        dataSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+        dataSheet.setFrozenRows(1);
+      }
+
+      return ContentService
+        .createTextOutput(JSON.stringify({ success: true, action: 'INIT' }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
     // 支援直接新增至獨立樂器庫工作表
     // 必須確認第一張表確實是樂器庫，否則會寫錯地方
     if (action === 'ADD_INSTRUMENT' || data.performance_name === '樂器標籤') {
@@ -99,6 +137,13 @@ function doPost(e) {
       // 如果只有一張表且它是資料表，我們就當作舊模式寫入資料表
       if (instSheet && checkVals !== 'performance_name') {
         instSheet.appendRow([data.instrument_name]);
+        return ContentService
+          .createTextOutput(JSON.stringify({ success: true, action: 'ADD_INSTRUMENT' }))
+          .setMimeType(ContentService.MimeType.JSON);
+      } else if (action === 'ADD_INSTRUMENT') {
+        // 如果是舊版單一工作表模式 (第一欄是 performance_name)，我們需要將樂器寫入資料表中
+        const sheet = getDataSheet_(customId);
+        sheet.appendRow(['樂器標籤', '樂器表', '樂器表', '', '', '', data.instrument_name || '', '']);
         return ContentService
           .createTextOutput(JSON.stringify({ success: true, action: 'ADD_INSTRUMENT' }))
           .setMimeType(ContentService.MimeType.JSON);
