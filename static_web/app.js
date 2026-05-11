@@ -1,10 +1,10 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbwV45Ba8kSNBPv_kzRMujzQOAIdeQ6ObMcsN9zVuPFqf4Qw2tk1hehZCmQyMGvDV48/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbxiXx7ffMUQc9spsmmgxCqn4mNVZ1y1R4gB7QegAjoExY_FgigBWmf0BH2cE4blw70/exec';
 
 const App = {
     data: {
         performances: []
     },
-    
+
     init() {
         this.cacheDOM();
         this.bindEvents();
@@ -36,7 +36,7 @@ const App = {
     bindEvents() {
         this.navBtns.forEach(btn => {
             btn.addEventListener('click', (e) => {
-                if(e.target.dataset.target) {
+                if (e.target.dataset.target) {
                     this.switchView(e.target.dataset.target);
                 }
             });
@@ -67,7 +67,7 @@ const App = {
             alert('網址格式錯誤，無法擷取試算表 ID。請確保網址包含 /d/.../edit');
             return;
         }
-        
+
         // Show loader
         this.showLoader(true);
 
@@ -75,14 +75,17 @@ const App = {
             // Automatically initialize the spreadsheet format
             await fetch(API_URL, {
                 method: 'POST',
+                mode: 'no-cors',
                 body: JSON.stringify({ action: 'INIT', sheetId: this.getSheetId() })
             });
+            // Wait for GAS to finish processing
+            await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (e) {
-            console.warn('Initialization request failed:', e);
+            console.warn('Initialization request (expected opaque):', e);
         }
 
-        alert('設定已儲存！將為您重新載入資料。');
-        
+        alert('設定已儲存！系統已自動為您建立資料表結構。');
+
         // Switch to performances view and fetch
         this.switchView('view-performances');
         this.fetchData();
@@ -119,7 +122,7 @@ const App = {
         return [...new Set(this.data.performances.map(p => String(p.name)))]
             .filter(name => name && name !== '樂器標籤');
     },
-    
+
     getUniquePieces() {
         const currentPerfName = document.getElementById('input-perf').value.trim();
         const piecesInCurrentPerf = new Set();
@@ -148,7 +151,7 @@ const App = {
 
         return result;
     },
-    
+
     getUniqueParts() {
         const parts = [];
         this.data.performances.forEach(perf => {
@@ -160,13 +163,13 @@ const App = {
         });
         return [...new Set(parts)].filter(Boolean);
     },
-    
+
     getUniqueInstruments() {
         const insts = [];
         if (this.data.globalInstruments) {
             insts.push(...this.data.globalInstruments);
         }
-        
+
         this.data.performances.forEach(perf => {
             perf.pieces.forEach(piece => {
                 piece.parts.forEach(part => {
@@ -188,7 +191,7 @@ const App = {
         const renderList = (val) => {
             const rawOptions = getOptionsCallback();
             listContainer.innerHTML = '';
-            
+
             // Normalize options to object format. Safely convert numbers to strings.
             const options = rawOptions.map(opt => {
                 if (typeof opt === 'object' && opt !== null) return opt;
@@ -196,7 +199,7 @@ const App = {
             });
 
             // Filter options, or show all if val is empty
-            const filtered = val 
+            const filtered = val
                 ? options.filter(opt => opt.title.toLowerCase().includes(val.toLowerCase()))
                 : options;
 
@@ -208,7 +211,7 @@ const App = {
             filtered.forEach(opt => {
                 const item = document.createElement('div');
                 item.className = 'autocomplete-item';
-                
+
                 if (opt.inCurrent) {
                     item.classList.add('highlight-current');
                 }
@@ -249,15 +252,15 @@ const App = {
     switchView(targetId) {
         this.navBtns.forEach(btn => btn.classList.remove('active'));
         const targetBtn = document.querySelector(`[data-target="${targetId}"]`);
-        if(targetBtn) targetBtn.classList.add('active');
-        
+        if (targetBtn) targetBtn.classList.add('active');
+
         document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
         document.getElementById(targetId).classList.remove('hidden');
-        
+
         // If switching to summary, try to render first option if none selected
-        if(targetId === 'view-summary' && !this.summarySelect.value && this.summarySelect.options.length > 1) {
-             this.summarySelect.selectedIndex = 1;
-             this.renderSummary(this.summarySelect.value);
+        if (targetId === 'view-summary' && !this.summarySelect.value && this.summarySelect.options.length > 1) {
+            this.summarySelect.selectedIndex = 1;
+            this.renderSummary(this.summarySelect.value);
         }
     },
 
@@ -276,9 +279,9 @@ const App = {
             this.populateSummarySelect();
             this.renderGlobalInstruments();
             this.showLoader(false);
-            
+
             // Show performances view by default if it's currently hidden and loader is gone
-            if(document.querySelector('.view:not(.hidden)') === null) {
+            if (document.querySelector('.view:not(.hidden)') === null) {
                 this.viewPerformances.classList.remove('hidden');
             }
         } catch (error) {
@@ -290,7 +293,7 @@ const App = {
     processData(rawJson) {
         let rows = rawJson;
         this.data.globalInstruments = [];
-        
+
         // Handle new GAS format: { instruments: [], performances: [] }
         if (!Array.isArray(rawJson) && rawJson.performances) {
             this.data.globalInstruments = rawJson.instruments || [];
@@ -300,19 +303,19 @@ const App = {
         const perfMap = new Map();
 
         rows.forEach(row => {
-            if(!row.performance_name && !row.title) return; // Skip entirely empty rows
+            if (!row.performance_name && !row.title) return; // Skip entirely empty rows
 
             // Safely cast everything to strings since GAS might return numbers
             let perfName = row.performance_name;
-            perfName = (perfName !== null && perfName !== undefined && String(perfName).trim() !== '') 
+            perfName = (perfName !== null && perfName !== undefined && String(perfName).trim() !== '')
                 ? String(perfName).trim() : '未命名表演';
-                
+
             let title = row.title;
             title = (title !== null && title !== undefined) ? String(title).trim() : '';
             if (!title) return; // Must have a title
-            
+
             let pieceId = row.piece_id;
-            pieceId = (pieceId !== null && pieceId !== undefined && String(pieceId).trim() !== '') 
+            pieceId = (pieceId !== null && pieceId !== undefined && String(pieceId).trim() !== '')
                 ? String(pieceId).trim() : title;
 
             if (!perfMap.has(perfName)) {
@@ -323,7 +326,7 @@ const App = {
             if (!perf.piecesMap.has(pieceId)) {
                 perf.piecesMap.set(pieceId, {
                     id: pieceId, title: title,
-                    composer: row.composer != null ? String(row.composer).trim() : '', 
+                    composer: row.composer != null ? String(row.composer).trim() : '',
                     arranger: row.arranger != null ? String(row.arranger).trim() : '',
                     partsMap: new Map()
                 });
@@ -338,7 +341,7 @@ const App = {
                 piece.partsMap.set(partName, { name: partName, instruments: [], rowIndexes: [] });
             }
             const part = piece.partsMap.get(partName);
-            
+
             // Record the row index for this specific entry so we can delete/edit it later
             if (row._row) part.rowIndexes.push(row._row);
 
@@ -363,7 +366,7 @@ const App = {
 
     renderPerformances() {
         this.perfContainer.innerHTML = '';
-        if(this.data.performances.length === 0) {
+        if (this.data.performances.length === 0) {
             this.perfContainer.innerHTML = '<p style="color:var(--text-muted)">目前沒有任何表演資料。</p>';
             return;
         }
@@ -372,11 +375,11 @@ const App = {
 
         this.data.performances.forEach(perf => {
             if (perf.name === '樂器標籤') return; // Option A: Hide fake performance from UI
-            
+
             hasVisiblePerformances = true;
             const card = document.createElement('div');
             card.className = 'perf-card';
-            
+
             let piecesHtml = '<ul class="piece-list">';
             perf.pieces.forEach(piece => {
                 const partsCount = piece.parts.length;
@@ -386,7 +389,7 @@ const App = {
                 let partsHtml = '<div class="parts-grid">';
                 piece.parts.forEach(part => {
                     let instsText = part.instruments.map(i => i.name + (i.remark ? ` (${i.remark})` : '')).join(', ');
-                    if(!instsText) instsText = '<span style="color:var(--text-muted)">無設定樂器</span>';
+                    if (!instsText) instsText = '<span style="color:var(--text-muted)">無設定樂器</span>';
                     // Convert rowIndexes to JSON string to pass it safely in the onclick handler
                     const rowIdxStr = JSON.stringify(part.rowIndexes);
                     partsHtml += `
@@ -449,12 +452,12 @@ const App = {
         if (!perf) return;
 
         // 計算每種樂器所需數量
-        const instCount = {}; 
+        const instCount = {};
         perf.pieces.forEach(piece => {
             piece.parts.forEach(part => {
                 part.instruments.forEach(inst => {
                     const name = inst.name.trim();
-                    if(name) {
+                    if (name) {
                         instCount[name] = (instCount[name] || 0) + 1;
                     }
                 });
@@ -462,9 +465,9 @@ const App = {
         });
 
         const entries = Object.entries(instCount);
-        if(entries.length === 0) {
-             this.summaryContainer.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">此演出尚未設定任何樂器。</p>';
-             return;
+        if (entries.length === 0) {
+            this.summaryContainer.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">此演出尚未設定任何樂器。</p>';
+            return;
         }
 
         // Sort by count descending
@@ -475,11 +478,11 @@ const App = {
                 <thead><tr><th>樂器名稱 (Instrument)</th><th>需求數量 (Count)</th></tr></thead>
                 <tbody>
         `;
-        
+
         for (const [name, count] of entries) {
             tableHtml += `<tr><td>${name}</td><td><strong style="color:var(--primary); font-size:16px;">${count}</strong></td></tr>`;
         }
-        
+
         tableHtml += `</tbody></table>`;
         this.summaryContainer.innerHTML = tableHtml;
     },
@@ -547,16 +550,16 @@ const App = {
 
     resetBuilder() {
         this.editingRowIndexes = null; // Clear edit mode
-        
+
         document.getElementById('input-perf').value = '';
         document.getElementById('input-title').value = '';
         document.getElementById('input-new-part').value = '';
         document.getElementById('input-new-inst').value = '';
         document.getElementById('selected-instruments').innerHTML = '';
-        
+
         // Render part chips and instrument pool based on current data
         this.renderBuilderOptions();
-        
+
         // Setup change listeners to dynamically update options if needed
         document.getElementById('input-perf').onchange = () => this.renderBuilderOptions();
         document.getElementById('input-title').onchange = () => this.renderBuilderOptions();
@@ -565,12 +568,12 @@ const App = {
     editPart(perfName, pieceId, partName, rowIndexes) {
         this.showModal("編輯樂譜配置");
         this.resetBuilder(); // resets form and editingRowIndexes
-        
+
         // Find the performance, piece, and part data
         const perf = this.data.performances.find(p => p.name === perfName);
         const piece = perf ? perf.pieces.find(p => p.id === pieceId) : null;
         const part = piece ? piece.parts.find(p => p.name === partName) : null;
-        
+
         if (!part) return;
 
         // Set edit mode data
@@ -623,7 +626,7 @@ const App = {
         tag.className = 'inst-tag';
         tag.textContent = name;
         tag.dataset.name = name;
-        
+
         if (isPoolItem) {
             // Support tap to add on mobile
             tag.onclick = () => {
@@ -635,7 +638,7 @@ const App = {
             // Already in selected zone
             tag.onclick = () => tag.remove();
         }
-        
+
         container.appendChild(tag);
         return tag;
     },
@@ -643,7 +646,7 @@ const App = {
     addNewInstrument() {
         const input = document.getElementById('input-new-inst');
         const name = input.value.trim();
-        if(name) {
+        if (name) {
             this.createInstrumentTag(name, document.getElementById('selected-instruments'), false);
             input.value = '';
         }
@@ -652,7 +655,7 @@ const App = {
     async submitBuilder() {
         const perfName = document.getElementById('input-perf').value.trim();
         const title = document.getElementById('input-title').value.trim();
-        
+
         // Determine part name (active chip OR input)
         const activeChip = document.querySelector('.chip.active');
         const inputPart = document.getElementById('input-new-part').value.trim();
@@ -704,13 +707,13 @@ const App = {
                     });
                 }
             }
-            
+
             this.closeModal();
 
             // Give Google Sheets 1.5 seconds to persist the data before we fetch again
             // because GAS writes can have a slight delay.
             await new Promise(resolve => setTimeout(resolve, 1500));
-            await this.fetchData(); 
+            await this.fetchData();
         } catch (e) {
             console.error('Submit error:', e);
             alert("儲存時發生錯誤，請檢查網路狀態。");
@@ -731,6 +734,7 @@ const App = {
             const dataWithSheet = { ...payload, sheetId: sheetId };
             await fetch(API_URL, {
                 method: 'POST',
+                mode: 'no-cors',
                 body: JSON.stringify(dataWithSheet)
             });
         } catch (e) {
@@ -742,7 +746,7 @@ const App = {
         if (!this.globalInstPool) return;
         this.globalInstPool.innerHTML = '';
         const insts = this.getUniqueInstruments();
-        
+
         if (insts.length === 0) {
             this.globalInstPool.innerHTML = '<p style="color:var(--text-muted)">目前沒有任何樂器。</p>';
             return;
@@ -780,10 +784,10 @@ const App = {
             });
 
             input.value = '';
-            
+
             // Give Google Sheets 1.5 seconds to persist
             await new Promise(resolve => setTimeout(resolve, 1500));
-            await this.fetchData(); 
+            await this.fetchData();
         } catch (e) {
             console.error('Submit error:', e);
             alert("新增樂器時發生錯誤。");
