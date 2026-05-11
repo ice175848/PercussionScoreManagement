@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbxiXx7ffMUQc9spsmmgxCqn4mNVZ1y1R4gB7QegAjoExY_FgigBWmf0BH2cE4blw70/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwj8dHYHbFzezG4ONcCuTjG8JyEIoIppk2vcHWfbXuzej1RREo73-uYNy50orZl3P0/exec';
 
 const App = {
     data: {
@@ -274,6 +274,14 @@ const App = {
             const url = API_URL + '?sheetId=' + sheetId + '&t=' + new Date().getTime();
             const response = await fetch(url);
             const json = await response.json();
+
+            // Check if GAS returned an error
+            if (json && json.error) {
+                console.error('GAS error:', json.error);
+                this.showLoader(false);
+                return;
+            }
+
             this.processData(json);
             this.renderPerformances();
             this.populateSummarySelect();
@@ -286,18 +294,21 @@ const App = {
             }
         } catch (error) {
             console.error('Error fetching data:', error);
+            this.showLoader(false);
             this.loader.innerHTML = `<p style="color:var(--danger)">載入失敗，請檢查網路連線。</p>`;
         }
     },
 
     processData(rawJson) {
-        let rows = rawJson;
+        let rows = [];
         this.data.globalInstruments = [];
 
-        // Handle new GAS format: { instruments: [], performances: [] }
-        if (!Array.isArray(rawJson) && rawJson.performances) {
+        // Handle GAS format: { instruments: [], performances: [] }
+        if (rawJson && !Array.isArray(rawJson) && rawJson.performances) {
             this.data.globalInstruments = rawJson.instruments || [];
-            rows = rawJson.performances;
+            rows = rawJson.performances || [];
+        } else if (Array.isArray(rawJson)) {
+            rows = rawJson;
         }
 
         const perfMap = new Map();
@@ -710,21 +721,17 @@ const App = {
             }
 
             this.closeModal();
-
-            // Give Google Sheets time to persist the data before we fetch again
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            await this.fetchData();
         } catch (e) {
-            // With no-cors mode, the POST always succeeds on the server even if
-            // the browser reports a network error. So just log and continue.
             console.warn('Submit warning (data likely saved):', e);
             this.closeModal();
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            await this.fetchData();
         } finally {
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
         }
+
+        // Always refresh data after submit, regardless of try/catch outcome
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        await this.fetchData();
     },
 
     async postData(payload) {

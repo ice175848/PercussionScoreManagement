@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbwV45Ba8kSNBPv_kzRMujzQOAIdeQ6ObMcsN9zVuPFqf4Qw2tk1hehZCmQyMGvDV48/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbwj8dHYHbFzezG4ONcCuTjG8JyEIoIppk2vcHWfbXuzej1RREo73-uYNy50orZl3P0/exec';
 
 const instruments = [
   "小鼓 (Snare Drum)",
