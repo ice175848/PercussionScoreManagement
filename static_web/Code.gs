@@ -1,136 +1,129 @@
 // ===== 打擊樂譜管理系統 — Google Apps Script 後端 =====
-// 此腳本為中央 API，所有使用者共用同一份腳本，
+// 此腳本為中央 API，所有使用者共用同一份腳本。
 // 前端透過 sheetId 參數指定要操作哪一份試算表。
+//
+// 架構：
+//   第一張工作表 = 樂器庫（名稱固定為「樂器庫」）
+//   第二張以後的工作表 = 各場演出（工作表名稱 = 演出名稱）
+//   每場演出的標頭列：piece_id | title | composer | arranger | part_name | instrument_name | instrument_remark
 
-// 樂器庫工作表名稱（固定）
-const INST_SHEET_NAME = '樂器庫';
-// 演出資料工作表名稱（固定）
-const DATA_SHEET_NAME = '演出資料';
+var INST_SHEET_NAME = '樂器庫';
+
+// 預設樂器清單（INIT 時若樂器庫為空會自動匯入）
+var DEFAULT_INSTRUMENTS = [
+  'Timpani', 'Drumset',
+  'Bongo', 'Conga', 'Tom-Tom', 'Floor Tom', 'Snare Drum', 'Bass Drum',
+  'Suspend Cymbal', 'Crash Cymbals', 'Hi-hats', 'Ride Cymbal',
+  'Triangle', 'Tambourine', 'Cowbell', 'Claves', 'Guiro', 'Cabasa',
+  'Shaker', 'Sleigh Bell', 'Wind Chimes', 'Bells',
+  'Xylophone', 'Marimba', 'Vibraphone', 'Chimes'
+];
+
+// 每場演出工作表的標頭（7 欄，不含 performance_name，因為工作表名稱就是演出名稱）
+var PERF_HEADERS = ['piece_id', 'title', 'composer', 'arranger', 'part_name', 'instrument_name', 'instrument_remark'];
 
 // ========== 工具函式 ==========
 
-/**
- * 依 sheetId 開啟試算表
- */
 function openSS_(sheetId) {
   if (!sheetId) throw new Error('缺少 sheetId 參數');
   try {
     return SpreadsheetApp.openById(sheetId);
   } catch (e) {
-    throw new Error('無法存取試算表 (' + sheetId + ')。請確認共用設定已開啟為「知道連結的任何人均可編輯」。');
+    throw new Error('無法存取試算表。請確認共用設定已開啟為「知道連結的任何人均可編輯」。');
   }
 }
 
-/**
- * 取得「樂器庫」工作表（依名稱查找）
- * 找不到則回傳 null
- */
-function findInstSheet_(ss) {
-  return ss.getSheetByName(INST_SHEET_NAME);
-}
-
-/**
- * 取得「演出資料」工作表（依名稱查找，或依標頭辨識）
- * 找不到則回傳 null
- */
-function findDataSheet_(ss) {
-  // 1. 依固定名稱
-  var sheet = ss.getSheetByName(DATA_SHEET_NAME);
-  if (sheet) return sheet;
-
-  // 2. 舊版相容：名稱叫「工作表1」
-  sheet = ss.getSheetByName('工作表1');
-  if (sheet) return sheet;
-
-  // 3. 遍歷所有表，找 A1 = performance_name 的
-  var all = ss.getSheets();
-  for (var i = 0; i < all.length; i++) {
-    var val = all[i].getRange('A1').getValue().toString().trim();
-    if (val === 'performance_name') return all[i];
-  }
-
-  return null;
-}
-
-// ========== INIT：自動建立 / 修正試算表結構 ==========
+// ========== INIT ==========
 
 function initSpreadsheet_(ss) {
-  // --- 1. 確保「樂器庫」工作表存在 ---
-  var instSheet = findInstSheet_(ss);
+  // --- 1. 確保「樂器庫」工作表存在且在最前面 ---
+  var instSheet = ss.getSheetByName(INST_SHEET_NAME);
   if (!instSheet) {
-    instSheet = ss.insertSheet(INST_SHEET_NAME, 0);
+    // 如果試算表只有一張空白的預設表，就把它拿來用
+    var allSheets = ss.getSheets();
+    if (allSheets.length === 1 && allSheets[0].getLastRow() === 0) {
+      instSheet = allSheets[0];
+      instSheet.setName(INST_SHEET_NAME);
+    } else {
+      instSheet = ss.insertSheet(INST_SHEET_NAME, 0);
+    }
   }
-  // 確保有標頭
+
+  // 確保標頭
   if (instSheet.getRange('A1').getValue().toString().trim() !== '樂器名稱') {
     instSheet.getRange('A1').setValue('樂器名稱');
     instSheet.setFrozenRows(1);
   }
 
-  // --- 2. 確保「演出資料」工作表存在 ---
-  var dataSheet = findDataSheet_(ss);
-  if (!dataSheet) {
-    // 找一張非樂器庫的既有空白表來用（通常是新試算表預設的「工作表1」或「Sheet1」）
-    var all = ss.getSheets();
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].getName() !== INST_SHEET_NAME) {
-        dataSheet = all[i];
-        break;
-      }
-    }
-    if (dataSheet) {
-      dataSheet.setName(DATA_SHEET_NAME);
-    } else {
-      dataSheet = ss.insertSheet(DATA_SHEET_NAME);
+  // 如果樂器庫是空的（只有標頭），匯入預設樂器
+  if (instSheet.getLastRow() <= 1) {
+    var defaultData = DEFAULT_INSTRUMENTS.map(function(name) { return [name]; });
+    if (defaultData.length > 0) {
+      instSheet.getRange(2, 1, defaultData.length, 1).setValues(defaultData);
     }
   }
 
-  // 確保有標頭列
-  if (dataSheet.getRange('A1').getValue().toString().trim() !== 'performance_name') {
-    var headers = ['performance_name', 'piece_id', 'title', 'composer', 'arranger', 'part_name', 'instrument_name', 'instrument_remark'];
-    // 如果表格裡已經有資料，在第一行前插入
-    if (dataSheet.getLastRow() > 0 && dataSheet.getRange('A1').getValue().toString().trim() !== '') {
-      dataSheet.insertRowBefore(1);
-    }
-    dataSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    dataSheet.setFrozenRows(1);
-  }
-
-  return { instSheet: instSheet, dataSheet: dataSheet };
+  return instSheet;
 }
 
-// ========== doGet：讀取資料 ==========
+// 取得或建立某場演出的工作表
+function getOrCreatePerfSheet_(ss, perfName) {
+  var name = String(perfName).trim();
+  if (!name || name === INST_SHEET_NAME) {
+    throw new Error('無效的演出名稱');
+  }
+
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, PERF_HEADERS.length).setValues([PERF_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+
+  return sheet;
+}
+
+// ========== doGet ==========
 
 function doGet(e) {
   var sheetId = e.parameter.sheetId;
 
   try {
     var ss = openSS_(sheetId);
-
-    // 先嘗試自動初始化（冪等操作，已存在的不會重複建立）
-    var sheets = initSpreadsheet_(ss);
+    var instSheet = initSpreadsheet_(ss);
 
     // 1. 讀取樂器庫
-    var instSheet = sheets.instSheet;
     var instruments = [];
     var instValues = instSheet.getDataRange().getValues();
     for (var i = 1; i < instValues.length; i++) {
-      var name = instValues[i][0];
-      if (name !== null && name !== undefined && name.toString().trim() !== '') {
-        instruments.push(name.toString().trim());
+      var val = instValues[i][0];
+      if (val !== null && val !== undefined && val.toString().trim() !== '') {
+        instruments.push(val.toString().trim());
       }
     }
 
-    // 2. 讀取演出資料
-    var dataSheet = sheets.dataSheet;
-    var values = dataSheet.getDataRange().getValues();
+    // 2. 讀取所有演出工作表
+    var allSheets = ss.getSheets();
     var rows = [];
 
-    if (values.length >= 2) {
+    for (var s = 0; s < allSheets.length; s++) {
+      var sheet = allSheets[s];
+      var sheetName = sheet.getName();
+
+      // 跳過樂器庫
+      if (sheetName === INST_SHEET_NAME) continue;
+
+      var values = sheet.getDataRange().getValues();
+      if (values.length < 2) continue;
+
       var headers = values[0];
       for (var r = 1; r < values.length; r++) {
-        var obj = { _row: r + 1 };
+        var obj = {
+          _row: r + 1,
+          performance_name: sheetName
+        };
         for (var c = 0; c < headers.length; c++) {
-          if (headers[c]) obj[headers[c]] = values[r][c];
+          if (headers[c]) obj[headers[c].toString().trim()] = values[r][c];
         }
         rows.push(obj);
       }
@@ -147,7 +140,7 @@ function doGet(e) {
   }
 }
 
-// ========== doPost：寫入資料 ==========
+// ========== doPost ==========
 
 function doPost(e) {
   var data = JSON.parse(e.postData.contents);
@@ -163,31 +156,29 @@ function doPost(e) {
     // --- INIT ---
     if (action === 'INIT') {
       initSpreadsheet_(ss);
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: true, action: 'INIT' }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ok_('INIT');
     }
 
-    // 確保結構已初始化
-    var sheets = initSpreadsheet_(ss);
+    // 確保樂器庫已初始化
+    initSpreadsheet_(ss);
 
-    // --- ADD_INSTRUMENT：寫入樂器庫 ---
+    // --- ADD_INSTRUMENT ---
     if (action === 'ADD_INSTRUMENT') {
+      var instSheet = ss.getSheetByName(INST_SHEET_NAME);
       var instName = (data.instrument_name || '').toString().trim();
-      if (instName) {
-        sheets.instSheet.appendRow([instName]);
+      if (instName && instSheet) {
+        instSheet.appendRow([instName]);
       }
-      return ContentService
-        .createTextOutput(JSON.stringify({ success: true, action: 'ADD_INSTRUMENT' }))
-        .setMimeType(ContentService.MimeType.JSON);
+      return ok_('ADD_INSTRUMENT');
     }
 
     // --- CRUD 演出資料 ---
-    var sheet = sheets.dataSheet;
+    var perfName = (data.performance_name || '').toString().trim();
+    if (!perfName) throw new Error('缺少 performance_name');
 
     if (action === 'create') {
+      var sheet = getOrCreatePerfSheet_(ss, perfName);
       sheet.appendRow([
-        data.performance_name || '',
         data.piece_id || '',
         data.title || '',
         data.composer || '',
@@ -196,12 +187,14 @@ function doPost(e) {
         data.instrument_name || '',
         data.instrument_remark || ''
       ]);
+      return ok_('create');
 
     } else if (action === 'update') {
+      var sheet = ss.getSheetByName(perfName);
+      if (!sheet) throw new Error('找不到演出工作表：' + perfName);
       var rowIndex = parseInt(data.row_index);
-      if (!rowIndex) throw new Error('Missing row_index for update');
-      sheet.getRange(rowIndex, 1, 1, 8).setValues([[
-        data.performance_name || '',
+      if (!rowIndex) throw new Error('Missing row_index');
+      sheet.getRange(rowIndex, 1, 1, PERF_HEADERS.length).setValues([[
         data.piece_id || '',
         data.title || '',
         data.composer || '',
@@ -210,16 +203,18 @@ function doPost(e) {
         data.instrument_name || '',
         data.instrument_remark || ''
       ]]);
+      return ok_('update');
 
     } else if (action === 'delete') {
+      var sheet = ss.getSheetByName(perfName);
+      if (!sheet) throw new Error('找不到演出工作表：' + perfName);
       var rowIndex = parseInt(data.row_index);
-      if (!rowIndex) throw new Error('Missing row_index for delete');
+      if (!rowIndex) throw new Error('Missing row_index');
       sheet.deleteRow(rowIndex);
+      return ok_('delete');
     }
 
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: true, action: action }))
-      .setMimeType(ContentService.MimeType.JSON);
+    throw new Error('未知的 action: ' + action);
 
   } catch (err) {
     return ContentService
@@ -228,4 +223,10 @@ function doPost(e) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function ok_(action) {
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true, action: action }))
+    .setMimeType(ContentService.MimeType.JSON);
 }

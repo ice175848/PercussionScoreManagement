@@ -24,7 +24,7 @@ import '../../domain/entities/score_piece.dart';
 class GoogleSheetsPieceRemoteDataSource {
   /// TODO: 請把這個 URL 換成你自己部署好的 Apps Script Web App URL。
   static const String _endpoint =
-      'https://script.google.com/macros/s/AKfycbxiXx7ffMUQc9spsmmgxCqn4mNVZ1y1R4gB7QegAjoExY_FgigBWmf0BH2cE4blw70/exec';
+      'https://script.google.com/macros/s/AKfycbyXR6j-4CQoTsvzJ18EMhLaKww5qeM5uhWHcGy9mWcr7ScmM0Q4VhFTNF3wEkjf6BY/exec';
 
   final http.Client _client;
 
