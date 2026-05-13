@@ -681,11 +681,22 @@ input:focus, select:focus {
     white-space: nowrap;
 }
 
-/* Builder layout responsive */
+/* Mobile Responsive Layout */
 @media (max-width: 600px) {
+    .app-container {
+        width: 100%;
+        height: 100vh;
+        border-radius: 0;
+        border: none;
+    }
+    main {
+        padding: 16px;
+    }
     .builder-modal {
         max-width: 95vw !important;
         padding: 16px !important;
+        max-height: 95vh;
+        overflow-y: auto;
     }
     header {
         flex-direction: column;
@@ -696,9 +707,41 @@ input:focus, select:focus {
         flex-wrap: wrap;
         justify-content: center;
     }
+    .nav-btn {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
     .view-header {
         flex-direction: column;
-        gap: 12px;
-        align-items: flex-start;
+        gap: 16px;
+        align-items: stretch;
+    }
+    .view-header h2 {
+        text-align: center;
+        font-size: 24px;
+    }
+    .view-header .action-btn {
+        width: 100%;
+        padding: 14px;
+        font-size: 16px;
+    }
+    .performances-grid {
+        grid-template-columns: 1fr;
+    }
+    .glass-select {
+        width: 100%;
+    }
+    .summary-table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+    }
+    .summary-table th, .summary-table td {
+        padding: 12px 16px;
+    }
+    .form-row {
+        flex-direction: column;
+        gap: 0;
     }
 }
