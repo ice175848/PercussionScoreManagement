@@ -363,11 +363,14 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
     backdrop-filter: blur(4px);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start; /* Prevent top cutoff when content > 100vh */
     z-index: 100;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.3s ease;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 24px 16px;
 }
 
 .modal:not(.hidden) {
@@ -376,7 +379,8 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 }
 
 .modal-content {
-    width: 90%;
+    margin: auto; /* Vertically center when smaller than viewport */
+    width: 100%;
     max-width: 500px;
     border-radius: 20px;
     padding: 32px;
@@ -695,8 +699,6 @@ input:focus, select:focus {
     .builder-modal {
         max-width: 95vw !important;
         padding: 16px !important;
-        max-height: 95vh;
-        overflow-y: auto;
     }
     header {
         flex-direction: column;
