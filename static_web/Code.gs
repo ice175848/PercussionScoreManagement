@@ -4,10 +4,12 @@
 //
 // 架構：
 //   第一張工作表 = 樂器庫（名稱固定為「樂器庫」）
-//   第二張以後的工作表 = 各場演出（工作表名稱 = 演出名稱）
-//   每場演出的標頭列：piece_id | title | composer | arranger | part_name | instrument_name | instrument_remark
+//   第二張工作表 = 演奏者名冊（名稱固定為「演奏者」）
+//   第三張以後的工作表 = 各場演出（工作表名稱 = 演出名稱）
+//   每場演出的標頭列：title | composer | arranger | part_name | player_name | instrument_name | instrument_remark
 
 var INST_SHEET_NAME = '樂器庫';
+var PLAYER_SHEET_NAME = '演奏者';
 
 // 預設樂器清單（INIT 時若樂器庫為空會自動匯入）
 var DEFAULT_INSTRUMENTS = [
@@ -19,8 +21,8 @@ var DEFAULT_INSTRUMENTS = [
   'Xylophone', 'Marimba', 'Vibraphone', 'Chimes'
 ];
 
-// 每場演出工作表的標頭（7 欄，不含 performance_name，因為工作表名稱就是演出名稱）
-var PERF_HEADERS = ['piece_id', 'title', 'composer', 'arranger', 'part_name', 'instrument_name', 'instrument_remark'];
+// 每場演出工作表的標頭（7 欄）
+var PERF_HEADERS = ['title', 'composer', 'arranger', 'part_name', 'player_name', 'instrument_name', 'instrument_remark'];
 
 // ========== 工具函式 ==========
 
@@ -36,10 +38,9 @@ function openSS_(sheetId) {
 // ========== INIT ==========
 
 function initSpreadsheet_(ss) {
-  // --- 1. 確保「樂器庫」工作表存在且在最前面 ---
+  // --- 1. 確保「樂器庫」工作表存在 ---
   var instSheet = ss.getSheetByName(INST_SHEET_NAME);
   if (!instSheet) {
-    // 如果試算表只有一張空白的預設表，就把它拿來用
     var allSheets = ss.getSheets();
     if (allSheets.length === 1 && allSheets[0].getLastRow() === 0) {
       instSheet = allSheets[0];
@@ -63,13 +64,23 @@ function initSpreadsheet_(ss) {
     }
   }
 
-  return instSheet;
+  // --- 2. 確保「演奏者」工作表存在 ---
+  var playerSheet = ss.getSheetByName(PLAYER_SHEET_NAME);
+  if (!playerSheet) {
+    playerSheet = ss.insertSheet(PLAYER_SHEET_NAME, 1);
+  }
+  if (playerSheet.getRange('A1').getValue().toString().trim() !== '演奏者姓名') {
+    playerSheet.getRange('A1').setValue('演奏者姓名');
+    playerSheet.setFrozenRows(1);
+  }
+
+  return { instSheet: instSheet, playerSheet: playerSheet };
 }
 
 // 取得或建立某場演出的工作表
 function getOrCreatePerfSheet_(ss, perfName) {
   var name = String(perfName).trim();
-  if (!name || name === INST_SHEET_NAME) {
+  if (!name || name === INST_SHEET_NAME || name === PLAYER_SHEET_NAME) {
     throw new Error('無效的演出名稱');
   }
 
@@ -83,6 +94,20 @@ function getOrCreatePerfSheet_(ss, perfName) {
   return sheet;
 }
 
+// 讀取單欄名冊（跳過標頭）
+function readSingleColumn_(sheet) {
+  var result = [];
+  if (!sheet) return result;
+  var values = sheet.getDataRange().getValues();
+  for (var i = 1; i < values.length; i++) {
+    var val = values[i][0];
+    if (val !== null && val !== undefined && val.toString().trim() !== '') {
+      result.push(val.toString().trim());
+    }
+  }
+  return result;
+}
+
 // ========== doGet ==========
 
 function doGet(e) {
@@ -90,19 +115,15 @@ function doGet(e) {
 
   try {
     var ss = openSS_(sheetId);
-    var instSheet = initSpreadsheet_(ss);
+    var sheets = initSpreadsheet_(ss);
 
     // 1. 讀取樂器庫
-    var instruments = [];
-    var instValues = instSheet.getDataRange().getValues();
-    for (var i = 1; i < instValues.length; i++) {
-      var val = instValues[i][0];
-      if (val !== null && val !== undefined && val.toString().trim() !== '') {
-        instruments.push(val.toString().trim());
-      }
-    }
+    var instruments = readSingleColumn_(sheets.instSheet);
 
-    // 2. 讀取所有演出工作表
+    // 2. 讀取演奏者名冊
+    var players = readSingleColumn_(sheets.playerSheet);
+
+    // 3. 讀取所有演出工作表
     var allSheets = ss.getSheets();
     var rows = [];
 
@@ -110,8 +131,8 @@ function doGet(e) {
       var sheet = allSheets[s];
       var sheetName = sheet.getName();
 
-      // 跳過樂器庫
-      if (sheetName === INST_SHEET_NAME) continue;
+      // 跳過系統表
+      if (sheetName === INST_SHEET_NAME || sheetName === PLAYER_SHEET_NAME) continue;
 
       var values = sheet.getDataRange().getValues();
       if (values.length < 2) continue;
@@ -130,7 +151,7 @@ function doGet(e) {
     }
 
     return ContentService
-      .createTextOutput(JSON.stringify({ instruments: instruments, performances: rows }))
+      .createTextOutput(JSON.stringify({ instruments: instruments, players: players, performances: rows }))
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -159,7 +180,7 @@ function doPost(e) {
       return ok_('INIT');
     }
 
-    // 確保樂器庫已初始化
+    // 確保已初始化
     initSpreadsheet_(ss);
 
     // --- ADD_INSTRUMENT ---
@@ -172,21 +193,26 @@ function doPost(e) {
       return ok_('ADD_INSTRUMENT');
     }
 
+    // --- ADD_PLAYER ---
+    if (action === 'ADD_PLAYER') {
+      var playerSheet = ss.getSheetByName(PLAYER_SHEET_NAME);
+      var pName = (data.player_name || '').toString().trim();
+      if (pName && playerSheet) {
+        playerSheet.appendRow([pName]);
+      }
+      return ok_('ADD_PLAYER');
+    }
+
     // --- CRUD 演出資料 ---
     var perfName = (data.performance_name || '').toString().trim();
     if (!perfName) throw new Error('缺少 performance_name');
 
     if (action === 'create') {
       var sheet = getOrCreatePerfSheet_(ss, perfName);
-      sheet.appendRow([
-        data.piece_id || '',
-        data.title || '',
-        data.composer || '',
-        data.arranger || '',
-        data.part_name || '',
-        data.instrument_name || '',
-        data.instrument_remark || ''
-      ]);
+      var lastCol = sheet.getLastColumn();
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return h.toString().trim(); });
+      var rowData = headers.map(function(h) { return data[h] !== undefined ? data[h] : ''; });
+      sheet.appendRow(rowData);
       return ok_('create');
 
     } else if (action === 'update') {
@@ -194,16 +220,33 @@ function doPost(e) {
       if (!sheet) throw new Error('找不到演出工作表：' + perfName);
       var rowIndex = parseInt(data.row_index);
       if (!rowIndex) throw new Error('Missing row_index');
-      sheet.getRange(rowIndex, 1, 1, PERF_HEADERS.length).setValues([[
-        data.piece_id || '',
-        data.title || '',
-        data.composer || '',
-        data.arranger || '',
-        data.part_name || '',
-        data.instrument_name || '',
-        data.instrument_remark || ''
-      ]]);
+      
+      var lastCol = sheet.getLastColumn();
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return h.toString().trim(); });
+      var rowData = headers.map(function(h) { return data[h] !== undefined ? data[h] : ''; });
+      
+      sheet.getRange(rowIndex, 1, 1, lastCol).setValues([rowData]);
       return ok_('update');
+      
+    } else if (action === 'update_remark') {
+      var sheet = ss.getSheetByName(perfName);
+      if (!sheet) throw new Error('找不到演出工作表：' + perfName);
+      var rowIndexes = data.row_indexes;
+      var remark = data.remark !== undefined ? data.remark : '';
+      
+      var lastCol = sheet.getLastColumn();
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return h.toString().trim(); });
+      var colIdx = headers.indexOf('instrument_remark') + 1;
+      
+      if (colIdx > 0 && Array.isArray(rowIndexes)) {
+        for (var i = 0; i < rowIndexes.length; i++) {
+          var rIdx = parseInt(rowIndexes[i]);
+          if (rIdx) {
+            sheet.getRange(rIdx, colIdx).setValue(remark);
+          }
+        }
+      }
+      return ok_('update_remark');
 
     } else if (action === 'delete') {
       var sheet = ss.getSheetByName(perfName);

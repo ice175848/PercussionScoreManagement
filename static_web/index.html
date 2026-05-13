@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
     <div class="background-blobs">
@@ -152,6 +152,23 @@
                         <button class="action-btn secondary mini" onclick="app.addNewInstrument()">加入</button>
                     </div>
                 </div>
+
+                <!-- 演奏者拖曳區 -->
+                <div class="builder-section">
+                    <label>此分部的演奏者 (拖曳或點擊以加入)</label>
+                    <div class="dnd-zone selected-zone" id="selected-players">
+                        <!-- Drop target -->
+                    </div>
+
+                    <label style="margin-top: 16px;">演奏者名冊 (拖曳或點擊以加入)</label>
+                    <div class="dnd-zone pool-zone" id="available-players">
+                        <!-- Pool of available players -->
+                    </div>
+                    <div class="add-inst-row">
+                        <input type="text" id="input-new-player" placeholder="+ 手動建立並加入新演奏者">
+                        <button class="action-btn secondary mini" onclick="app.addNewPlayer()">加入</button>
+                    </div>
+                </div>
             </div>
 
             <div class="form-actions">
@@ -163,6 +180,6 @@
 
     <!-- SortableJS for Drag and Drop -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <script src="app.js?v=15"></script>
+    <script src="app.js?v=17"></script>
 </body>
 </html>

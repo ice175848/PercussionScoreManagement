@@ -184,6 +184,28 @@ const App = {
         return [...new Set(insts)].filter(Boolean);
     },
 
+    getUniquePlayers() {
+        const players = [];
+        if (this.data.globalPlayers) {
+            players.push(...this.data.globalPlayers);
+        }
+
+        this.data.performances.forEach(perf => {
+            perf.pieces.forEach(piece => {
+                piece.parts.forEach(part => {
+                    part.instruments.forEach(i => {
+                        if (i.player) {
+                            i.player.split(',').forEach(p => {
+                                if (p.trim()) players.push(p.trim());
+                            });
+                        }
+                    });
+                });
+            });
+        });
+        return [...new Set(players)].filter(Boolean);
+    },
+
     setupAutocomplete(inputId, listId, getOptionsCallback) {
         const input = document.getElementById(inputId);
         const listContainer = document.getElementById(listId);
@@ -302,10 +324,12 @@ const App = {
     processData(rawJson) {
         let rows = [];
         this.data.globalInstruments = [];
+        this.data.globalPlayers = [];
 
-        // Handle GAS format: { instruments: [], performances: [] }
+        // Handle GAS format: { instruments: [], players: [], performances: [] }
         if (rawJson && !Array.isArray(rawJson) && rawJson.performances) {
             this.data.globalInstruments = rawJson.instruments || [];
+            this.data.globalPlayers = rawJson.players || [];
             rows = rawJson.performances || [];
         } else if (Array.isArray(rawJson)) {
             rows = rawJson;
@@ -325,9 +349,7 @@ const App = {
             title = (title !== null && title !== undefined) ? String(title).trim() : '';
             if (!title) return; // Must have a title
 
-            let pieceId = row.piece_id;
-            pieceId = (pieceId !== null && pieceId !== undefined && String(pieceId).trim() !== '')
-                ? String(pieceId).trim() : title;
+            const pieceId = title;
 
             if (!perfMap.has(perfName)) {
                 perfMap.set(perfName, { id: perfName, name: perfName, piecesMap: new Map() });
@@ -359,6 +381,7 @@ const App = {
             if (row.instrument_name !== null && row.instrument_name !== undefined && String(row.instrument_name).trim() !== '') {
                 part.instruments.push({
                     name: String(row.instrument_name).trim(),
+                    player: row.player_name != null ? String(row.player_name).trim() : '',
                     remark: row.instrument_remark != null ? String(row.instrument_remark).trim() : '',
                     rowIndex: row._row
                 });
@@ -401,12 +424,16 @@ const App = {
                 piece.parts.forEach(part => {
                     let instsText = part.instruments.map(i => i.name + (i.remark ? ` (${i.remark})` : '')).join(', ');
                     if (!instsText) instsText = '<span style="color:var(--text-muted)">無設定樂器</span>';
+                    // Extract player info from the first instrument (shared per part)
+                    const playerText = (part.instruments[0] && part.instruments[0].player) ? part.instruments[0].player : '';
+                    const playerHtml = playerText ? `<div class="part-players" style="font-size:11px; color:var(--secondary); margin-top:4px;">🎵 ${playerText}</div>` : '';
                     // Convert rowIndexes to JSON string to pass it safely in the onclick handler
                     const rowIdxStr = JSON.stringify(part.rowIndexes);
                     partsHtml += `
                         <div class="part-card" onclick="event.stopPropagation(); app.editPart('${perf.name}', '${piece.id}', '${part.name}', ${rowIdxStr})" style="cursor: pointer;" title="點擊編輯此分部">
                             <div class="part-name">${part.name} <span style="float:right; opacity:0.5;">✏️</span></div>
                             <div class="part-insts">${instsText}</div>
+                            ${playerHtml}
                         </div>
                     `;
                 });
@@ -444,8 +471,9 @@ const App = {
 
     populateSummarySelect() {
         this.summarySelect.innerHTML = '<option value="">請選擇演出...</option>';
-        this.data.performances.forEach(perf => {
-            if (perf.name === '樂器標籤') return; // Option A: Hide from summary dropdown
+        const perfs = [...this.data.performances].reverse();
+        perfs.forEach(perf => {
+            if (perf.name === '樂器標籤') return; // Hide from summary dropdown
             const opt = document.createElement('option');
             opt.value = perf.name;
             opt.textContent = perf.name;
@@ -462,40 +490,97 @@ const App = {
         const perf = this.data.performances.find(p => p.name === perfName);
         if (!perf) return;
 
-        // 計算每種樂器所需數量
-        const instCount = {};
+        // 計算每種樂器所需數量並記錄列索引
+        const instMap = new Map();
         perf.pieces.forEach(piece => {
             piece.parts.forEach(part => {
                 part.instruments.forEach(inst => {
                     const name = inst.name.trim();
                     if (name) {
-                        instCount[name] = (instCount[name] || 0) + 1;
+                        if (!instMap.has(name)) {
+                            instMap.set(name, { count: 0, checkedCount: 0, rowIndexes: [] });
+                        }
+                        const entry = instMap.get(name);
+                        entry.count++;
+                        entry.rowIndexes.push(inst.rowIndex);
+                        if (inst.remark === '已清點' || inst.remark === 'checked') {
+                            entry.checkedCount++;
+                        }
                     }
                 });
             });
         });
 
-        const entries = Object.entries(instCount);
+        const entries = Array.from(instMap.entries());
         if (entries.length === 0) {
             this.summaryContainer.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">此演出尚未設定任何樂器。</p>';
             return;
         }
 
         // Sort by count descending
-        entries.sort((a, b) => b[1] - a[1]);
+        entries.sort((a, b) => b[1].count - a[1].count);
 
         let tableHtml = `
             <table class="summary-table">
-                <thead><tr><th>樂器名稱 (Instrument)</th><th>需求數量 (Count)</th></tr></thead>
+                <thead><tr>
+                    <th style="width: 50px; text-align: center;">清點</th>
+                    <th>樂器名稱 (Instrument)</th>
+                    <th>需求數量 (Count)</th>
+                </tr></thead>
                 <tbody>
         `;
 
-        for (const [name, count] of entries) {
-            tableHtml += `<tr><td>${name}</td><td><strong style="color:var(--primary); font-size:16px;">${count}</strong></td></tr>`;
+        for (const [name, data] of entries) {
+            const isChecked = data.checkedCount === data.count;
+            const rowIdxsJson = JSON.stringify(data.rowIndexes);
+            const style = isChecked ? 'text-decoration: line-through; color: var(--text-muted);' : '';
+            tableHtml += `
+                <tr class="${isChecked ? 'checked-row' : ''}">
+                    <td style="text-align: center;">
+                        <input type="checkbox" 
+                               style="transform: scale(1.5); cursor: pointer;"
+                               ${isChecked ? 'checked' : ''} 
+                               onchange='App.toggleInstrumentCheck("${perfName}", "${name}", this.checked, ${rowIdxsJson})'>
+                    </td>
+                    <td style="${style}">${name}</td>
+                    <td style="${style}"><strong style="font-size:16px; ${isChecked ? '' : 'color:var(--primary);'}">${data.count}</strong></td>
+                </tr>
+            `;
         }
 
         tableHtml += `</tbody></table>`;
         this.summaryContainer.innerHTML = tableHtml;
+    },
+
+    async toggleInstrumentCheck(perfName, instName, isChecked, rowIndexes) {
+        const remark = isChecked ? '已清點' : '';
+        
+        try {
+            // Optimistic UI update
+            const perf = this.data.performances.find(p => p.name === perfName);
+            if (perf) {
+                perf.pieces.forEach(piece => {
+                    piece.parts.forEach(part => {
+                        part.instruments.forEach(inst => {
+                            if (rowIndexes.includes(inst.rowIndex)) {
+                                inst.remark = remark;
+                            }
+                        });
+                    });
+                });
+            }
+            this.renderSummary(perfName);
+
+            // Send to backend
+            await this.postData({
+                action: 'update_remark',
+                performance_name: perfName,
+                row_indexes: rowIndexes,
+                remark: remark
+            });
+        } catch (e) {
+            console.warn('Update remark failed locally:', e);
+        }
     },
 
     showLoader(show) {
@@ -515,7 +600,6 @@ const App = {
 
     closeModal() {
         this.modal.classList.add('hidden');
-        this.form.reset();
     },
 
     showCreateModal() {
@@ -543,16 +627,31 @@ const App = {
         });
 
         this.poolSortable = new Sortable(poolZone, {
-            group: {
-                name: 'shared',
-                pull: 'clone', // Clone from pool
-                put: false     // Don't put items back, just delete them from selected
-            },
+            group: { name: 'shared', pull: 'clone', put: false },
             animation: 150,
-            sort: false, // Pool items don't need sorting
+            sort: false,
             onEnd: (evt) => {
                 if (evt.to === selectedZone) {
-                    // Tap to delete functionality in selected zone
+                    evt.item.onclick = () => evt.item.remove();
+                }
+            }
+        });
+
+        const selectedPlayerZone = document.getElementById('selected-players');
+        const poolPlayerZone = document.getElementById('available-players');
+
+        this.selectedPlayerSortable = new Sortable(selectedPlayerZone, {
+            group: 'players',
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+        });
+
+        this.poolPlayerSortable = new Sortable(poolPlayerZone, {
+            group: { name: 'players', pull: 'clone', put: false },
+            animation: 150,
+            sort: false,
+            onEnd: (evt) => {
+                if (evt.to === selectedPlayerZone) {
                     evt.item.onclick = () => evt.item.remove();
                 }
             }
@@ -566,7 +665,9 @@ const App = {
         document.getElementById('input-title').value = '';
         document.getElementById('input-new-part').value = '';
         document.getElementById('input-new-inst').value = '';
+        document.getElementById('input-new-player').value = '';
         document.getElementById('selected-instruments').innerHTML = '';
+        document.getElementById('selected-players').innerHTML = '';
 
         // Render part chips and instrument pool based on current data
         this.renderBuilderOptions();
@@ -601,8 +702,22 @@ const App = {
         const selectedZone = document.getElementById('selected-instruments');
         selectedZone.innerHTML = ''; // clear default empty
         part.instruments.forEach(inst => {
-            this.createInstrumentTag(inst.name, selectedZone, false);
+            if (inst.name) {
+                this.createInstrumentTag(inst.name, selectedZone, false);
+            }
         });
+
+        // Pre-fill selected players
+        const selectedPlayerZone = document.getElementById('selected-players');
+        selectedPlayerZone.innerHTML = '';
+        const firstInst = part.instruments[0];
+        if (firstInst && firstInst.player) {
+            firstInst.player.split(',').forEach(p => {
+                if (p.trim()) {
+                    this.createPlayerTag(p.trim(), selectedPlayerZone, false);
+                }
+            });
+        }
     },
 
     renderBuilderOptions() {
@@ -624,11 +739,18 @@ const App = {
         });
 
         // Instruments Pool
-        const insts = this.getUniqueInstruments();
-        const poolZone = document.getElementById('available-instruments');
-        poolZone.innerHTML = '';
-        insts.forEach(instName => {
-            this.createInstrumentTag(instName, poolZone, true);
+        const iPool = document.getElementById('available-instruments');
+        iPool.innerHTML = '';
+        const allInsts = this.getUniqueInstruments();
+        allInsts.forEach(name => {
+            this.createInstrumentTag(name, iPool, true);
+        });
+
+        const pPool = document.getElementById('available-players');
+        pPool.innerHTML = '';
+        const allPlayers = this.getUniquePlayers();
+        allPlayers.forEach(name => {
+            this.createPlayerTag(name, pPool, true);
         });
     },
 
@@ -654,11 +776,56 @@ const App = {
         return tag;
     },
 
+    createPlayerTag(name, container, isPoolItem) {
+        const tag = document.createElement('div');
+        tag.className = 'inst-tag player-tag'; // reuse inst-tag styles
+        tag.textContent = name;
+        tag.dataset.name = name;
+        
+        // Give player tags a slightly different tint
+        tag.style.backgroundColor = 'var(--secondary)';
+        tag.style.borderColor = 'var(--primary)';
+        tag.style.color = 'var(--text-light)';
+
+        if (isPoolItem) {
+            // Support tap to add on mobile
+            tag.onclick = () => {
+                const target = document.getElementById('selected-players');
+                const exists = Array.from(target.children).some(c => c.dataset.name === name);
+                if (!exists) {
+                    this.createPlayerTag(name, target, false);
+                }
+            };
+        } else {
+            // Already in selected zone
+            tag.onclick = () => tag.remove();
+        }
+
+        container.appendChild(tag);
+        return tag;
+    },
+
     addNewInstrument() {
         const input = document.getElementById('input-new-inst');
         const name = input.value.trim();
         if (name) {
             this.createInstrumentTag(name, document.getElementById('selected-instruments'), false);
+            input.value = '';
+        }
+    },
+    
+    addNewPlayer() {
+        const input = document.getElementById('input-new-player');
+        const name = input.value.trim();
+        if (name) {
+            this.createPlayerTag(name, document.getElementById('selected-players'), false);
+            // Immediately add to backend pool silently
+            try {
+                this.postData({
+                    action: 'ADD_PLAYER',
+                    player_name: name
+                });
+            } catch (e) { console.warn(e); }
             input.value = '';
         }
     },
@@ -681,6 +848,11 @@ const App = {
         const selectedZone = document.getElementById('selected-instruments');
         const instTags = selectedZone.querySelectorAll('.inst-tag');
         const instruments = Array.from(instTags).map(t => t.dataset.name);
+
+        // Gather players from the selected zone
+        const selectedPlayerZone = document.getElementById('selected-players');
+        const playerTags = selectedPlayerZone.querySelectorAll('.inst-tag');
+        const playersStr = Array.from(playerTags).map(t => t.dataset.name).join(', ');
 
         const submitBtn = document.querySelector('.builder-modal .action-btn.primary');
         const originalText = submitBtn.textContent;
@@ -708,14 +880,14 @@ const App = {
                 await this.postData({
                     action: 'create',
                     performance_name: perfName, title: title, part_name: partName,
-                    instrument_name: '', instrument_remark: ''
+                    instrument_name: '', player_name: playersStr, instrument_remark: ''
                 });
             } else {
                 for (const instName of instruments) {
                     await this.postData({
                         action: 'create',
                         performance_name: perfName, title: title, part_name: partName,
-                        instrument_name: instName, instrument_remark: ''
+                        instrument_name: instName, player_name: playersStr, instrument_remark: ''
                     });
                 }
             }
@@ -785,19 +957,14 @@ const App = {
 
         try {
             await this.postData({
-                action: 'create', // Use 'create' so the OLD Apps Script accepts and writes it
-                instrument_name: name,
-                // The NEW Apps Script will intercept this specific performance_name and route it to Sheet 1
-                performance_name: '樂器標籤',
-                title: '樂器庫',
-                part_name: 'Pool',
-                instrument_remark: ''
+                action: 'ADD_INSTRUMENT',
+                instrument_name: name
             });
 
             input.value = '';
 
-            // Give Google Sheets 1.5 seconds to persist
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Give Google Sheets time to persist
+            await new Promise(resolve => setTimeout(resolve, 2000));
             await this.fetchData();
         } catch (e) {
             console.error('Submit error:', e);

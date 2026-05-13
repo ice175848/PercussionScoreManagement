@@ -645,3 +645,60 @@ input:focus, select:focus {
 .summary-table tr:last-child td {
     border-bottom: none;
 }
+
+/* Checked row in summary table */
+.checked-row td {
+    opacity: 0.6;
+}
+
+/* Player tag variant */
+.player-tag {
+    background: linear-gradient(135deg, #1e40af, #1d4ed8) !important;
+    border-color: var(--secondary) !important;
+}
+.selected-zone .player-tag {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+    box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.2) !important;
+}
+
+/* Widen builder modal for 3 sections */
+.builder-modal {
+    max-width: 800px !important;
+}
+
+/* Add instrument/player inline row */
+.add-inst-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.add-inst-row input {
+    flex: 1;
+}
+.action-btn.mini {
+    padding: 8px 14px;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+/* Builder layout responsive */
+@media (max-width: 600px) {
+    .builder-modal {
+        max-width: 95vw !important;
+        padding: 16px !important;
+    }
+    header {
+        flex-direction: column;
+        gap: 12px;
+        padding: 16px;
+    }
+    nav {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .view-header {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}
