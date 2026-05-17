@@ -860,37 +860,30 @@ const App = {
         submitBtn.disabled = true;
 
         try {
-            // If we are in edit mode, we must first delete the existing rows for this part
-            // Delete them in DESCENDING order of their row index to avoid shifting issues!
-            if (this.editingRowIndexes && this.editingRowIndexes.length > 0) {
-                const sortedIndexes = [...this.editingRowIndexes].sort((a, b) => b - a);
-                for (const rIdx of sortedIndexes) {
-                    await this.postData({
-                        action: 'delete',
-                        performance_name: perfName,
-                        row_index: rIdx
-                    });
-                }
-            }
-
-            // Since the API creates one row per instrument, if there are multiple instruments,
-            // we must send them in sequence
+            const deleteRows = (this.editingRowIndexes && this.editingRowIndexes.length > 0) 
+                ? [...this.editingRowIndexes] : [];
+            
+            const createRows = [];
             if (instruments.length === 0) {
-                // Just create part
-                await this.postData({
-                    action: 'create',
-                    performance_name: perfName, title: title, part_name: partName,
+                createRows.push({
+                    title: title, part_name: partName,
                     instrument_name: '', player_name: playersStr, instrument_remark: ''
                 });
             } else {
                 for (const instName of instruments) {
-                    await this.postData({
-                        action: 'create',
-                        performance_name: perfName, title: title, part_name: partName,
+                    createRows.push({
+                        title: title, part_name: partName,
                         instrument_name: instName, player_name: playersStr, instrument_remark: ''
                     });
                 }
             }
+
+            await this.postData({
+                action: 'batch_save',
+                performance_name: perfName,
+                delete_rows: deleteRows,
+                create_rows: createRows
+            });
 
             this.closeModal();
         } catch (e) {

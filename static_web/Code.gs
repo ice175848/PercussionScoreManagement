@@ -77,7 +77,7 @@ function initSpreadsheet_(ss) {
   return { instSheet: instSheet, playerSheet: playerSheet };
 }
 
-// 取得或建立某場演出的工作表
+// 取得或建立某場演出的工作表，並自動補齊缺失的標頭（向後相容）
 function getOrCreatePerfSheet_(ss, perfName) {
   var name = String(perfName).trim();
   if (!name || name === INST_SHEET_NAME || name === PLAYER_SHEET_NAME) {
@@ -89,6 +89,21 @@ function getOrCreatePerfSheet_(ss, perfName) {
     sheet = ss.insertSheet(name);
     sheet.getRange(1, 1, 1, PERF_HEADERS.length).setValues([PERF_HEADERS]);
     sheet.setFrozenRows(1);
+  } else {
+    // 檢查並補齊缺失的標頭
+    var lastCol = sheet.getLastColumn();
+    if (lastCol > 0) {
+      var currentHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return h.toString().trim(); });
+      var missingHeaders = [];
+      for (var i = 0; i < PERF_HEADERS.length; i++) {
+        if (currentHeaders.indexOf(PERF_HEADERS[i]) === -1) {
+          missingHeaders.push(PERF_HEADERS[i]);
+        }
+      }
+      if (missingHeaders.length > 0) {
+        sheet.getRange(1, lastCol + 1, 1, missingHeaders.length).setValues([missingHeaders]);
+      }
+    }
   }
 
   return sheet;
@@ -214,6 +229,33 @@ function doPost(e) {
       var rowData = headers.map(function(h) { return data[h] !== undefined ? data[h] : ''; });
       sheet.appendRow(rowData);
       return ok_('create');
+
+    } else if (action === 'batch_save') {
+      var sheet = getOrCreatePerfSheet_(ss, perfName);
+      var lastCol = sheet.getLastColumn();
+      var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function(h) { return h.toString().trim(); });
+      
+      // 1. Delete rows (must sort descending to not break indices)
+      if (Array.isArray(data.delete_rows) && data.delete_rows.length > 0) {
+        var sortedDeletes = data.delete_rows.map(function(r) { return parseInt(r); }).sort(function(a, b) { return b - a; });
+        for (var i = 0; i < sortedDeletes.length; i++) {
+          if (sortedDeletes[i] > 1) sheet.deleteRow(sortedDeletes[i]);
+        }
+      }
+      
+      // 2. Append new rows
+      if (Array.isArray(data.create_rows) && data.create_rows.length > 0) {
+        var newRows = [];
+        for (var i = 0; i < data.create_rows.length; i++) {
+          var rowObj = data.create_rows[i];
+          var rowData = headers.map(function(h) { return rowObj[h] !== undefined ? rowObj[h] : ''; });
+          newRows.push(rowData);
+        }
+        if (newRows.length > 0) {
+          sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, lastCol).setValues(newRows);
+        }
+      }
+      return ok_('batch_save');
 
     } else if (action === 'update') {
       var sheet = ss.getSheetByName(perfName);

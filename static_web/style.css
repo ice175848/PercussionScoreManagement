@@ -358,7 +358,7 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 /* Modal */
 .modal {
     position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
+    top: 0; left: 0; width: 100vw; height: 100dvh; /* Use dynamic viewport height for mobile Safari */
     background: rgba(0,0,0,0.6);
     backdrop-filter: blur(4px);
     display: flex;
@@ -370,7 +370,7 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
     transition: opacity 0.3s ease;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding: 24px 16px;
+    padding: 24px 16px 80px 16px; /* Extra bottom padding to ensure it scrolls past Safari address bar */
 }
 
 .modal:not(.hidden) {
@@ -689,7 +689,7 @@ input:focus, select:focus {
 @media (max-width: 600px) {
     .app-container {
         width: 100%;
-        height: 100vh;
+        height: 100dvh;
         border-radius: 0;
         border: none;
     }
