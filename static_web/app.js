@@ -300,14 +300,21 @@ const App = {
             // Check if GAS returned an error
             if (json && json.error) {
                 console.error('GAS error:', json.error);
+                alert('GAS 伺服器錯誤: ' + json.error);
                 this.showLoader(false);
                 return;
             }
 
-            this.processData(json);
-            this.renderPerformances();
-            this.populateSummarySelect();
-            this.renderGlobalInstruments();
+            try {
+                this.processData(json);
+                this.renderPerformances();
+                this.populateSummarySelect();
+                this.renderGlobalInstruments();
+            } catch (renderError) {
+                console.error('Rendering error:', renderError);
+                alert('處理或渲染資料時發生錯誤:\n' + renderError.message);
+            }
+
             this.showLoader(false);
 
             // Show performances view by default if it's currently hidden and loader is gone
@@ -316,8 +323,9 @@ const App = {
             }
         } catch (error) {
             console.error('Error fetching data:', error);
+            alert('網路或解析 JSON 發生錯誤:\n' + error.message);
             this.showLoader(false);
-            this.loader.innerHTML = `<p style="color:var(--danger)">載入失敗，請檢查網路連線。</p>`;
+            this.loader.innerHTML = `<p style="color:var(--danger)">載入失敗，請檢查網路連線或錯誤訊息。</p>`;
         }
     },
 
