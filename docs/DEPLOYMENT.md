@@ -73,3 +73,23 @@ codex-web.yml 在 codex 分支執行 npm ci、API 測試、靜態建置、Wrangl
 - 線上 API 驗證健康檢查、匿名 401、登入、建立／讀回、清點保留備註、刪除測試資料、登出後 401；線上瀏覽器確認登入頁正常。
 - 正式庫僅預置 26 種樂器，舊試算表與快照未自動匯入；請檢查來源資料的新舊，再從系統設定搬移。
 - 既有 develop GitHub Pages 與 Google Sheet 未變更。原本尚未提交的 .claspignore／appsscript 設定未納入本次提交。
+
+## 會員版升級（0002，優先於上方舊版說明）
+
+目前以會員帳號登入，原共用金鑰只用於一次性的既有資料認領，權限及 API 詳見 ACCOUNTS.md。一般登出現在會撤銷伺服器 Session；修改會員密碼會撤銷該帳號全部 Session。
+
+新增必要 Worker Secret AUTH_PEPPER：至少 32 字元高熵隨機值，與 ADMIN_KEY 不同。本機需在 .dev.vars 設定；正式值另存忽略的 backups/auth-pepper.txt、權限 600。此 Secret 是密碼驗證的一部分，不可像 Session Key 一樣直接輪替。部署登入的必要 OAuth scopes 包含 account:read、user:read、workers:write、workers_scripts:write、d1:write。
+
+發布流程：先在獨立臨時 D1／Worker 驗證會員功能與 Free 執行額度；正式更新時短暫暫停 API 寫入，匯出 SQL 備份，保存逐列雜湊與數量，套用 0002，確認既有資料、ID、清點及名冊一致，再部署會員版。完成後使用者須重新註冊／登入，再以原金鑰認領「既有樂團」，不會自動將它交給任意首位註冊者。
+
+回滾限制：會員版不可直接以舊共用金鑰版本作為正常回滾方案。舊無範圍資料表已移除，因此舊 Worker 會拒絕服務。問題處理應先暫停 API、保留更新後 SQL 備份，再發布修正版；若需還原升級前系統，應另建資料庫還原升級前 SQL、驗證資料與影響，再搭配舊程式切換，不能默默丟棄升級後新增的會員／樂團資料。
+
+### 2026-10-27 會員版發布結果（台灣時間）
+
+- 正式 Worker 版本：6c35a7c2-9fef-4e26-a2db-c31c603a28d3。
+- 升級前先發布暫停寫入頁，確認 API 503；SQL 備份位於 backups/before-accounts-20261027.sql，逐列快照位於 backups/before-accounts-state-20261027.json，均為本機 Git 忽略檔、權限 600。
+- 0002 遷移後，既有 37 筆配置、29 種樂器、4 位演奏者，連同 ID、備註、清點及 revision 逐列完全一致。前後 SHA-256：9375a52ac0f7c0aa5d8949f218cf574ed8ecbd01832f9e769664dd8fbaa0f587。
+- 20 組本機 API／遷移測試通過，涵蓋跨樂團資料列 ID 攻擊、角色、邀請、所有權、Session 撤銷與舊版回滾拒絕服務。
+- 在獨立 Cloudflare Free Worker／D1 完成真實 HTTPS 註冊、密碼登入、資料保存、隔離、唯讀、邀請、成員移除與登出檢查；不在正式庫建立驗收會員。臨時雲端環境於驗證後清除。
+- 本機瀏覽器驗證兩個樂團切換、原配置保存、邀請新會員、唯讀角色隱藏新增與匯入控制、禁止清點修改；正式瀏覽器確認會員註冊／登入頁，健康 API 正常、未登入資料 API 401。
+- 原管理金鑰備份仍為 backups/admin-key.txt；新 AUTH_PEPPER 另存 backups/auth-pepper.txt，不寫入 Git。正式既有樂團留待使用者註冊會員後自行認領，不擅自建立擁有者帳號。

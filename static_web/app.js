@@ -6,7 +6,7 @@ const App = {
     init() {
         this.cacheDOM();
         this.bindEvents();
-        this.fetchData();
+        this.loadAccount();
     },
 
     cacheDOM() {
@@ -38,36 +38,172 @@ const App = {
         this.initBuilder();
     },
 
-    async request(path, payload) {
+    roles: { owner: '擁有者', admin: '管理員', editor: '編輯者', viewer: '唯讀成員' },
+
+    async request(path, payload, band = this.bandId) {
+        if (['/api/data', '/api/members', '/api/invitations', '/api/ownership'].includes(path)) {
+            if (!band) throw new Error('請先選擇樂團空間');
+            path += '?band=' + encodeURIComponent(band);
+        }
         const response = await fetch(path, {
             credentials: 'same-origin',
-            ...(payload === undefined ? {} : {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
+            ...(payload === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         });
         const data = await response.json();
         if (!response.ok) {
-            if (response.status === 401) this.switchView('view-settings');
-            throw new Error(data.error || '操作失敗');
+            if (response.status === 401 && !path.startsWith('/api/auth/')) this.clearAccount();
+            const error = new Error(data.error || '操作失敗'); error.status = response.status; throw error;
         }
         return data;
     },
 
+    clearData() {
+        this.data = { performances: [], globalInstruments: [], globalPlayers: [] };
+        this.revision = undefined;
+        this.perfContainer.replaceChildren(); this.summaryContainer.replaceChildren();
+        this.globalInstPool.replaceChildren(); this.summarySelect.replaceChildren();
+        document.getElementById('band-members').replaceChildren();
+        document.getElementById('band-invitations').replaceChildren();
+        document.getElementById('invite-result').value = '';
+        this.closeModal();
+    },
+
+    clearAccount() {
+        this.user = null; this.bands = []; this.bandId = null; this.role = null; this.clearData();
+        for (const id of ['workspace-bar','account-controls','logout-btn','backup-controls','band-members-panel']) document.getElementById(id).classList.add('hidden');
+        document.getElementById('login-form').classList.remove('hidden');
+        this.switchView('view-settings'); this.showLoader(false);
+    },
+
+    async loadAccount(preferred) {
+        try {
+            const account = await this.request('/api/me');
+            this.user = account.user; this.bands = account.bands;
+            document.getElementById('login-form').classList.add('hidden');
+            for (const id of ['workspace-bar','account-controls','logout-btn']) document.getElementById(id).classList.remove('hidden');
+            document.getElementById('account-label').textContent = this.user.display_name + ' (@' + this.user.username + ')';
+            const select = document.getElementById('band-select'); select.replaceChildren();
+            for (const band of this.bands) { const option = document.createElement('option'); option.value = band.id; option.textContent = band.name; select.append(option); }
+            const saved = preferred || this.bandId || localStorage.getItem('percussion-band');
+            const next = this.bands.find(band => band.id === saved)?.id || this.bands[0]?.id || null;
+            await this.switchBand(next);
+            if (!next) { this.switchView('view-settings'); document.getElementById('connection-status').textContent = '已登入。請建立樂團、接受邀請，或認領既有樂團。'; }
+            return true;
+        } catch (error) { this.clearAccount(); document.getElementById('connection-status').textContent = error.message; return false; }
+    },
+
+    async switchBand(id) {
+        const select = document.getElementById('band-select'); select.disabled = true;
+        try {
+            await (this.pendingWrite || Promise.resolve());
+            this.bandId = id || null; this.clearData();
+            select.value = id || '';
+            if (id) localStorage.setItem('percussion-band', id);
+            const access = this.bands?.find(band => band.id === id);
+            this.role = access?.role || null;
+            document.getElementById('role-label').textContent = this.roles[this.role] || '尚未加入樂團';
+            document.getElementById('backup-controls').classList.toggle('hidden', !id);
+            document.getElementById('band-members-panel').classList.toggle('hidden', !id);
+            const admin = ['owner','admin'].includes(this.role), edit = ['owner','admin','editor'].includes(this.role);
+            document.getElementById('invite-form').classList.toggle('hidden', !admin);
+            document.querySelector('#invite-role option[value="admin"]').disabled = this.role !== 'owner';
+            document.getElementById('leave-band-btn').classList.toggle('hidden', !id || this.role === 'owner');
+            document.querySelector('label[for="import-file"]').classList.toggle('hidden', !admin);
+            document.getElementById('import-file').classList.toggle('hidden', !admin);
+            document.querySelector('#view-performances .action-btn').classList.toggle('hidden', !edit);
+            document.querySelector('#view-instruments .add-inst-row').classList.toggle('hidden', !edit);
+            if (id) { await this.fetchData(); await this.loadMembers(); }
+        } finally { select.disabled = false; this.showLoader(false); }
+    },
+
     async login(event) {
         event.preventDefault();
-        const input = document.getElementById('setting-admin-key');
-        const status = document.getElementById('connection-status');
+        const mode = event.submitter?.value === 'register' ? 'register' : 'login';
+        const controls = event.target.querySelectorAll('button'); controls.forEach(button => button.disabled = true);
         try {
-            await this.request('/api/login', { key: input.value });
-            input.value = '';
-            if (await this.fetchData()) this.switchView('view-performances');
-        } catch (error) { status.textContent = error.message; }
+            await this.request('/api/auth/' + mode, {
+                username: document.getElementById('login-username').value,
+                password: document.getElementById('login-password').value,
+                display_name: document.getElementById('login-display').value
+            });
+            document.getElementById('login-password').value = '';
+            await this.loadAccount();
+            this.switchView(this.bandId ? 'view-performances' : 'view-settings');
+        } catch (error) { document.getElementById('connection-status').textContent = error.message; }
+        finally { controls.forEach(button => button.disabled = false); }
     },
 
     async logout() {
-        try { await this.request('/api/logout', {}); location.reload(); }
+        try { await (this.pendingWrite || Promise.resolve()); await this.request('/api/auth/logout', {}); this.clearAccount(); document.getElementById('connection-status').textContent = '已登出'; }
         catch (error) { alert(error.message); }
+    },
+
+    async workspaceAction(event, path, payload) {
+        event.preventDefault();
+        const button = event.target.querySelector('button'); button.disabled = true;
+        try { const result = await this.request(path,payload); event.target.reset(); await this.loadAccount(result.id); return result; }
+        catch (error) { alert(error.message); }
+        finally { button.disabled = false; }
+    },
+    createBand(event) { return this.workspaceAction(event,'/api/bands',{ name: document.getElementById('new-band-name').value }); },
+    joinBand(event) { return this.workspaceAction(event,'/api/invitations/accept',{ code: document.getElementById('join-code').value.trim() }); },
+    claimLegacy(event) { return this.workspaceAction(event,'/api/legacy/claim',{ key: document.getElementById('legacy-key').value }); },
+    async changePassword(event) {
+        event.preventDefault();
+        try {
+            await this.request('/api/auth/password',{ current_password: document.getElementById('current-password').value, new_password: document.getElementById('new-password').value });
+            event.target.reset(); this.clearAccount(); document.getElementById('connection-status').textContent = '密碼已變更，全部裝置已登出，請使用新密碼登入。';
+        } catch (error) { alert(error.message); }
+    },
+    async loadMembers() {
+        const band = this.bandId;
+        const data = await this.request('/api/members',undefined,band);
+        if (this.bandId !== band) return;
+        const container = document.getElementById('band-members'); container.replaceChildren();
+        for (const member of data.members) {
+            const row = document.createElement('div'); row.className = 'member-row';
+            const label = document.createElement('span'); label.textContent = member.display_name + ' (@' + member.username + ') · ' + this.roles[member.role]; row.append(label);
+            const manageable = member.id !== this.user.id && member.role !== 'owner' && (this.role === 'owner' || (this.role === 'admin' && member.role !== 'admin'));
+            if (manageable) {
+                const select = document.createElement('select'); select.setAttribute('aria-label', member.username + '角色');
+                for (const role of ['viewer','editor','admin']) {
+                    if (role === 'admin' && this.role !== 'owner') continue;
+                    const option = document.createElement('option'); option.value = role; option.textContent = this.roles[role]; select.append(option);
+                }
+                select.value = member.role;
+                select.onchange = () => this.memberAction({ user_id: member.id, role: select.value }); row.append(select);
+                const remove = document.createElement('button'); remove.textContent = '移除'; remove.className = 'action-btn secondary mini';
+                remove.onclick = () => { if (confirm('移除 ' + member.username + ' 的樂團權限？')) this.memberAction({ action: 'remove',user_id: member.id }); }; row.append(remove);
+            }
+            if (this.role === 'owner' && member.id !== this.user.id) {
+                const transfer = document.createElement('button'); transfer.textContent = '轉移擁有權'; transfer.className = 'action-btn secondary mini';
+                transfer.onclick = async () => { if (confirm('將樂團擁有權轉移給 ' + member.username + '？你會保留管理員權限。')) { try { await this.request('/api/ownership',{ user_id: member.id }); await this.loadAccount(); } catch (error) { alert(error.message); } } }; row.append(transfer);
+            }
+            container.append(row);
+        }
+        if (['owner','admin'].includes(this.role)) {
+            const result = await this.request('/api/invitations',undefined,band);
+            if (this.bandId !== band) return;
+            const list = document.getElementById('band-invitations'); list.replaceChildren();
+            for (const invite of result.invitations.filter(i => !i.used_at && !i.revoked_at && i.expires_at > Date.now()/1000)) {
+                const row = document.createElement('div'); row.className = 'member-row';
+                const label = document.createElement('span'); label.textContent = '待加入：@' + invite.username + ' · ' + this.roles[invite.role];
+                const revoke = document.createElement('button'); revoke.textContent = '撤銷邀請'; revoke.className = 'action-btn secondary mini';
+                revoke.onclick = async () => { try { await this.request('/api/invitations',{ action: 'revoke',id: invite.id }); await this.loadMembers(); } catch (error) { alert(error.message); } };
+                row.append(label,revoke); list.append(row);
+            }
+        }
+    },
+    async memberAction(payload) { try { await this.request('/api/members',payload); await this.loadAccount(); } catch (error) { alert(error.message); await this.loadAccount(); } },
+    async leaveBand() { if (confirm('確定離開目前樂團？再次加入需要新的邀請。')) await this.memberAction({ action: 'remove',user_id: this.user.id }); },
+    async inviteMember(event) {
+        event.preventDefault();
+        const button = event.target.querySelector('button'); button.disabled = true;
+        try {
+            const result = await this.request('/api/invitations',{ username: document.getElementById('invite-username').value,role: document.getElementById('invite-role').value });
+            document.getElementById('invite-result').value = result.code; await this.loadMembers();
+        } catch (error) { alert(error.message); }
+        finally { button.disabled = false; }
     },
 
     downloadJson(data, name) {
@@ -292,9 +428,12 @@ const App = {
     },
 
     async fetchData() {
+        if (!this.bandId) { this.showLoader(false); return false; }
         try {
             this.showLoader(true);
-            const data = await this.request('/api/data');
+            const band = this.bandId;
+            const data = await this.request('/api/data',undefined,band);
+            if (band !== this.bandId) return false;
             this.revision = data.revision;
             this.processData(data);
             this.renderPerformances();
@@ -303,15 +442,14 @@ const App = {
             this.summarySelect.value = selected;
             this.renderSummary(this.summarySelect.value);
             this.renderGlobalInstruments();
-            document.getElementById('connection-status').textContent = '已連線至雲端資料庫';
+            document.getElementById('connection-status').textContent = '已連線至 ' + (this.bands.find(b => b.id === this.bandId)?.name || '樂團') + ' · ' + this.roles[this.role];
             document.getElementById('login-form').classList.add('hidden');
             document.getElementById('logout-btn').classList.remove('hidden');
             if (!document.querySelector('.view:not(.hidden)')) this.switchView('view-performances');
             return true;
         } catch (error) {
             document.getElementById('connection-status').textContent = error.message;
-            document.getElementById('login-form').classList.remove('hidden');
-            document.getElementById('logout-btn').classList.add('hidden');
+            this.clearData();
             this.switchView('view-settings');
             return false;
         } finally { this.showLoader(false); }
@@ -477,6 +615,7 @@ const App = {
             const row = tbody.insertRow();
             const check = document.createElement('input'); check.type = 'checkbox'; check.checked = data.checked;
             check.setAttribute('aria-label', name + '已清點');
+            check.disabled = this.role === 'viewer';
             check.onchange = async () => {
                 check.disabled = true;
                 try {
@@ -511,6 +650,7 @@ const App = {
     },
 
     showCreateModal() {
+        if (!['owner','admin','editor'].includes(this.role)) return;
         this.showModal("樂譜配置建立器");
         this.resetBuilder();
     },
@@ -591,6 +731,7 @@ const App = {
     },
 
     editPart(perfName, pieceId, partName, rowIndexes) {
+        if (!['owner','admin','editor'].includes(this.role)) return;
         this.showModal("編輯樂譜配置");
         this.resetBuilder(); // resets form and editingRowIndexes
 
@@ -846,8 +987,10 @@ const App = {
 
     async postData(payload) {
         // Serialize writes within a tab and keep the version current.
+        const band = this.bandId;
         const execute = async () => {
-            const data = await this.request('/api/data', { ...payload, revision: this.revision });
+            if (band !== this.bandId) throw new Error('樂團已切換，請重新操作');
+            const data = await this.request('/api/data', { ...payload, revision: this.revision },band);
             this.revision = data.revision;
             return data;
         };

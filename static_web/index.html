@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
     <div class="background-blobs">
@@ -28,6 +28,12 @@
             </nav>
         </header>
 
+        <div id="workspace-bar" class="workspace-bar hidden">
+            <span id="account-label"></span>
+            <label for="band-select">目前樂團</label>
+            <select id="band-select" onchange="app.switchBand(this.value)"></select>
+            <span id="role-label"></span>
+        </div>
         <main id="main-content">
             <!-- Loading State -->
             <div id="loader" class="loader-container">
@@ -66,7 +72,7 @@
                 </div>
                 <div class="glass-panel" style="padding: 24px; margin-top: 16px;">
                     <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        在這裡管理全域樂器庫。新增的樂器會自動出現在「新增配置」時的備用樂器庫中。
+                        在這裡管理本樂團樂器庫。新增的樂器會自動出現在「新增配置」時的備用樂器庫中。
                     </p>
                     <div class="add-inst-row" style="margin-bottom: 24px; display: flex; gap: 8px;">
                         <input type="text" id="setting-new-inst" placeholder="輸入新樂器名稱..." style="flex-grow: 1;">
@@ -87,14 +93,75 @@
                     <p id="connection-status" role="status" aria-live="polite">正在連線…</p>
                     <form id="login-form" onsubmit="app.login(event)">
                         <div class="form-group">
-                            <label for="setting-admin-key">管理金鑰</label>
-                            <input id="setting-admin-key" type="password" required autocomplete="current-password" placeholder="輸入管理者提供的金鑰">
+                            <label for="login-username">會員帳號</label>
+                            <input id="login-username" required autocomplete="username" minlength="3" maxlength="40" placeholder="英文、數字、底線、點或連字號">
                         </div>
-                        <button class="action-btn primary" type="submit">登入</button>
+                        <div class="form-group">
+                            <label for="login-password">密碼</label>
+                            <input id="login-password" type="password" required autocomplete="current-password" minlength="12" maxlength="128" placeholder="12–128 個字元">
+                        </div>
+                        <div class="form-group">
+                            <label for="login-display">顯示名稱（註冊時選填）</label>
+                            <input id="login-display" maxlength="80" autocomplete="nickname">
+                        </div>
+                        <div class="settings-actions">
+                            <button class="action-btn primary" type="submit" value="login">登入</button>
+                            <button class="action-btn secondary" type="submit" value="register">註冊新帳號</button>
+                        </div>
+                        <p>註冊後可以建立自己的樂團，或用專屬邀請碼加入。不同樂團的資料獨立保存。</p>
                     </form>
                     <button id="logout-btn" class="action-btn secondary hidden" onclick="app.logout()">登出</button>
+                    <div id="account-controls" class="hidden">
+                        <h3>樂團空間</h3>
+                        <form onsubmit="app.createBand(event)" class="workspace-form">
+                            <label for="new-band-name">新樂團名稱</label>
+                            <input id="new-band-name" required maxlength="100">
+                            <button class="action-btn primary" type="submit">建立樂團</button>
+                        </form>
+                        <form onsubmit="app.joinBand(event)" class="workspace-form">
+                            <label for="join-code">專屬邀請碼</label>
+                            <input id="join-code" required autocomplete="off" maxlength="64">
+                            <button class="action-btn secondary" type="submit">加入樂團</button>
+                        </form>
+                        <details>
+                            <summary>認領原有樂團資料（僅限一次）</summary>
+                            <p>原管理金鑰不再作為登入憑證。請先建立會員，再用原金鑰將既有演出歸入你的樂團。認領後只有受邀成員能存取。</p>
+                            <form onsubmit="app.claimLegacy(event)" class="workspace-form">
+                                <label for="legacy-key">原管理金鑰</label>
+                                <input id="legacy-key" type="password" required autocomplete="off">
+                                <button class="action-btn secondary" type="submit">認領既有樂團</button>
+                            </form>
+                        </details>
+                        <details>
+                            <summary>修改會員密碼</summary>
+                            <form onsubmit="app.changePassword(event)" class="workspace-form">
+                                <label for="current-password">目前密碼</label>
+                                <input id="current-password" type="password" required autocomplete="current-password" maxlength="128">
+                                <label for="new-password">新密碼</label>
+                                <input id="new-password" type="password" required autocomplete="new-password" minlength="12" maxlength="128">
+                                <button class="action-btn secondary" type="submit">變更密碼並登出所有裝置</button>
+                            </form>
+                        </details>
+                        <div id="band-members-panel" class="hidden">
+                            <hr><h3>目前樂團成員</h3>
+                            <p>擁有者可轉移所有權；管理員可邀請與管理編輯者、唯讀成員。編輯者可修改配置，唯讀成員可檢視與下載備份。</p>
+                            <div id="band-members"></div>
+                            <form id="invite-form" onsubmit="app.inviteMember(event)" class="workspace-form hidden">
+                                <label for="invite-username">受邀會員帳號</label>
+                                <input id="invite-username" required minlength="3" maxlength="40" autocomplete="off">
+                                <label for="invite-role">加入後角色</label>
+                                <select id="invite-role"><option value="editor">編輯者</option><option value="viewer">唯讀成員</option><option value="admin">管理員</option></select>
+                                <button class="action-btn secondary" type="submit">產生邀請碼</button>
+                                <label for="invite-result">邀請碼（僅顯示一次，七天內有效，請自行交給受邀者）</label>
+                                <textarea id="invite-result" readonly rows="3"></textarea>
+                            </form>
+                            <div id="band-invitations"></div>
+                            <button id="leave-band-btn" class="action-btn secondary hidden" onclick="app.leaveBand()">離開目前樂團</button>
+                        </div>
+                    </div>
                     <hr>
-                    <h3>備份與搬移資料</h3>
+                    <div id="backup-controls" class="hidden">
+                    <h3>目前樂團的備份與搬移資料</h3>
                     <p>備份包含演出、曲目、分部、演奏者、樂器及清點紀錄。匯入僅適用於尚無演出配置的資料庫。</p>
                     <div class="settings-actions">
                         <button class="action-btn secondary" onclick="app.exportData()">下載 JSON 備份</button>
@@ -109,6 +176,7 @@
                         <input type="url" id="setting-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
                         <button class="action-btn secondary" onclick="app.exportSheet()">下載舊試算表資料</button>
                     </details>
+                    </div>
                 </div>
             </section>
         </main>
@@ -198,6 +266,6 @@
 
     <!-- SortableJS for Drag and Drop -->
     <script src="vendor/Sortable.min.js"></script>
-    <script src="app.js?v=20"></script>
+    <script src="app.js?v=21"></script>
 </body>
 </html>

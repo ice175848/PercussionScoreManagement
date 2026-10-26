@@ -764,3 +764,10 @@ input:focus, select:focus {
 .selected-instrument span { overflow-wrap: anywhere; min-width: 80px; }
 .selected-instrument input { min-width: 0; width: 100%; padding: 8px; }
 .selected-instrument button { border: 0; background: transparent; color: inherit; font-size: 24px; cursor: pointer; }
+
+.workspace-bar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:16px 24px; border-bottom:1px solid #ffffff22; }
+.workspace-bar select,.workspace-form select,.member-row select { background:var(--bg-dark,#202538); color:var(--text-main,#eee); padding:10px; border:1px solid #ffffff33; border-radius:8px; max-width:100%; }
+.workspace-form { display:grid; gap:10px; margin:20px 0; }
+.workspace-form textarea { width:100%; background:transparent; color:inherit; border:1px solid #ffffff44; padding:10px; overflow-wrap:anywhere; }
+.member-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0; padding:12px; border-bottom:1px solid #ffffff22; }
+.member-row span { flex:1; min-width:140px; overflow-wrap:anywhere; }
