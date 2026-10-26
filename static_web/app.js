@@ -1,5 +1,3 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbwj8dHYHbFzezG4ONcCuTjG8JyEIoIppk2vcHWfbXuzej1RREo73-uYNy50orZl3P0/exec';
-
 const App = {
     data: {
         performances: []
@@ -8,15 +6,7 @@ const App = {
     init() {
         this.cacheDOM();
         this.bindEvents();
-        this.loadSettings();
-
-        if (!this.getSheetId()) {
-            // Force user to settings page if sheet ID is missing
-            this.switchView('view-settings');
-            this.showLoader(false);
-        } else {
-            this.fetchData();
-        }
+        this.fetchData();
     },
 
     cacheDOM() {
@@ -48,62 +38,83 @@ const App = {
         this.initBuilder();
     },
 
-    loadSettings() {
-        const sheetUrlInput = document.getElementById('setting-sheet-url');
-        if (sheetUrlInput) sheetUrlInput.value = localStorage.getItem('SHEET_URL') || '';
+    async request(path, payload) {
+        const response = await fetch(path, {
+            credentials: 'same-origin',
+            ...(payload === undefined ? {} : {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            if (response.status === 401) this.switchView('view-settings');
+            throw new Error(data.error || '操作失敗');
+        }
+        return data;
     },
 
-    async saveSettings() {
-        const sheetUrl = document.getElementById('setting-sheet-url').value.trim();
-
-        if (!sheetUrl) {
-            alert('請輸入 Google 試算表網址！');
-            return;
-        }
-
-        localStorage.setItem('SHEET_URL', sheetUrl);
-
-        if (!this.getSheetId()) {
-            alert('網址格式錯誤，無法擷取試算表 ID。請確保網址包含 /d/.../edit');
-            return;
-        }
-
-        // Show loader
-        this.showLoader(true);
-
+    async login(event) {
+        event.preventDefault();
+        const input = document.getElementById('setting-admin-key');
+        const status = document.getElementById('connection-status');
         try {
-            // Automatically initialize the spreadsheet format
-            await fetch(API_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                body: JSON.stringify({ action: 'INIT', sheetId: this.getSheetId() })
-            });
-            // Wait for GAS to finish processing
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        } catch (e) {
-            console.warn('Initialization request (expected opaque):', e);
-        }
-
-        alert('設定已儲存！系統已自動為您建立資料表結構。');
-
-        // Switch to performances view and fetch
-        this.switchView('view-performances');
-        this.fetchData();
+            await this.request('/api/login', { key: input.value });
+            input.value = '';
+            if (await this.fetchData()) this.switchView('view-performances');
+        } catch (error) { status.textContent = error.message; }
     },
 
-    getSheetId() {
-        const url = localStorage.getItem('SHEET_URL') || '';
-        const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-        return match ? match[1] : null;
+    async logout() {
+        try { await this.request('/api/logout', {}); location.reload(); }
+        catch (error) { alert(error.message); }
     },
 
-    openSheet() {
-        const sheetUrl = localStorage.getItem('SHEET_URL');
-        if (sheetUrl) {
-            window.open(sheetUrl, '_blank');
-        } else {
-            alert('您尚未設定試算表網址。');
-        }
+    downloadJson(data, name) {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+        const link = document.createElement('a');
+        link.href = url; link.download = name; link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    },
+
+    async exportData() {
+        try {
+            const data = await this.request('/api/data');
+            const today = new Date();
+            const date = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, '0'), String(today.getDate()).padStart(2, '0')].join('-');
+            this.downloadJson(data, `percussion-backup-${date}.json`);
+        } catch (error) { alert(error.message); }
+    },
+
+    async importData(input) {
+        try {
+            const file = input.files[0];
+            if (!file) return;
+            if (file.size > 2000000) throw new Error('匯入檔案不可超過 2 MB');
+            const data = JSON.parse(await file.text());
+            if (!data) throw new Error('備份格式錯誤');
+            const records = Array.isArray(data) ? data : data.performances;
+            if (!Array.isArray(records)) throw new Error('請選擇 JSON 備份或舊版資料檔');
+            if (!confirm(`將匯入 ${records.length} 筆配置。此功能僅能在尚無演出配置的資料庫使用。確定匯入？`)) return;
+            await this.postData({ action: 'import', data });
+            await this.fetchData();
+            alert('匯入完成！');
+        } catch (error) { alert(error.message); }
+        finally { input.value = ''; }
+    },
+
+    async exportSheet() {
+        try {
+            const url = document.getElementById('setting-sheet-url').value.trim();
+            const id = url.match(/^https:\/\/docs\.google\.com\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+            if (!id) throw new Error('請輸入有效的 Google 試算表網址');
+            const response = await fetch('https://script.google.com/macros/s/AKfycbwj8dHYHbFzezG4ONcCuTjG8JyEIoIppk2vcHWfbXuzej1RREo73-uYNy50orZl3P0/exec?sheetId=' + encodeURIComponent(id));
+            if (!response.ok) throw new Error('讀取舊資料失敗');
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            this.downloadJson(data, 'google-sheet-backup.json');
+            alert('舊資料備份已下載。請檢查檔案內容，再透過「匯入 JSON」搬移至資料庫。');
+        } catch (error) { alert(error.message); }
     },
 
     setupAutocompleteEvents() {
@@ -238,13 +249,7 @@ const App = {
                     item.classList.add('highlight-current');
                 }
 
-                // Highlight matching part
-                if (val) {
-                    const regex = new RegExp(`(${val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-                    item.innerHTML = opt.title.replace(regex, '<strong style="color:var(--primary)">$1</strong>');
-                } else {
-                    item.textContent = opt.title;
-                }
+                item.textContent = opt.title;
 
                 if (opt.inCurrent) {
                     // Append a small badge
@@ -287,46 +292,29 @@ const App = {
     },
 
     async fetchData() {
-        const sheetId = this.getSheetId();
-        if (!sheetId) return;
-
         try {
             this.showLoader(true);
-            // Append a timestamp and sheetId
-            const url = API_URL + '?sheetId=' + sheetId + '&t=' + new Date().getTime();
-            const response = await fetch(url);
-            const json = await response.json();
-
-            // Check if GAS returned an error
-            if (json && json.error) {
-                console.error('GAS error:', json.error);
-                alert('GAS 伺服器錯誤: ' + json.error);
-                this.showLoader(false);
-                return;
-            }
-
-            try {
-                this.processData(json);
-                this.renderPerformances();
-                this.populateSummarySelect();
-                this.renderGlobalInstruments();
-            } catch (renderError) {
-                console.error('Rendering error:', renderError);
-                alert('處理或渲染資料時發生錯誤:\n' + renderError.message);
-            }
-
-            this.showLoader(false);
-
-            // Show performances view by default if it's currently hidden and loader is gone
-            if (document.querySelector('.view:not(.hidden)') === null) {
-                this.viewPerformances.classList.remove('hidden');
-            }
+            const data = await this.request('/api/data');
+            this.revision = data.revision;
+            this.processData(data);
+            this.renderPerformances();
+            const selected = this.summarySelect.value;
+            this.populateSummarySelect();
+            this.summarySelect.value = selected;
+            this.renderSummary(this.summarySelect.value);
+            this.renderGlobalInstruments();
+            document.getElementById('connection-status').textContent = '已連線至雲端資料庫';
+            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('logout-btn').classList.remove('hidden');
+            if (!document.querySelector('.view:not(.hidden)')) this.switchView('view-performances');
+            return true;
         } catch (error) {
-            console.error('Error fetching data:', error);
-            alert('網路或解析 JSON 發生錯誤:\n' + error.message);
-            this.showLoader(false);
-            this.loader.innerHTML = `<p style="color:var(--danger)">載入失敗，請檢查網路連線或錯誤訊息。</p>`;
-        }
+            document.getElementById('connection-status').textContent = error.message;
+            document.getElementById('login-form').classList.remove('hidden');
+            document.getElementById('logout-btn').classList.add('hidden');
+            this.switchView('view-settings');
+            return false;
+        } finally { this.showLoader(false); }
     },
 
     processData(rawJson) {
@@ -379,7 +367,7 @@ const App = {
             if (!partName) return; // If no part, just the piece is registered
 
             if (!piece.partsMap.has(partName)) {
-                piece.partsMap.set(partName, { name: partName, instruments: [], rowIndexes: [] });
+                piece.partsMap.set(partName, { name: partName, player: String(row.player_name || ''), instruments: [], rowIndexes: [] });
             }
             const part = piece.partsMap.get(partName);
 
@@ -391,6 +379,7 @@ const App = {
                     name: String(row.instrument_name).trim(),
                     player: row.player_name != null ? String(row.player_name).trim() : '',
                     remark: row.instrument_remark != null ? String(row.instrument_remark).trim() : '',
+                    checked: Boolean(row.checked),
                     rowIndex: row._row
                 });
             }
@@ -407,74 +396,46 @@ const App = {
     },
 
     renderPerformances() {
-        this.perfContainer.innerHTML = '';
-        if (this.data.performances.length === 0) {
-            this.perfContainer.innerHTML = '<p style="color:var(--text-muted)">目前沒有任何表演資料。</p>';
-            return;
+        this.perfContainer.replaceChildren();
+        for (const perf of this.data.performances) {
+            if (perf.name === '樂器標籤') continue;
+            const card = document.createElement('div'); card.className = 'perf-card';
+            const heading = document.createElement('h3'); heading.textContent = perf.name; card.append(heading);
+            const list = document.createElement('ul'); list.className = 'piece-list';
+            for (const piece of perf.pieces) {
+                const item = document.createElement('li'); item.className = 'piece-item';
+                const summary = document.createElement('div'); summary.className = 'piece-summary';
+                summary.tabIndex = 0; summary.setAttribute('role', 'button');
+                summary.setAttribute('aria-expanded', 'false');
+                const title = document.createElement('span'); title.className = 'piece-title'; title.textContent = piece.title;
+                const meta = document.createElement('span'); meta.className = 'piece-meta';
+                meta.textContent = [piece.composer && piece.composer + ' 曲', `${piece.parts.length} 個分部`].filter(Boolean).join(' • ');
+                summary.append(title, meta);
+                const wrapper = document.createElement('div'); wrapper.className = 'piece-detail-wrapper';
+                const detail = document.createElement('div'); detail.className = 'piece-detail';
+                const inner = document.createElement('div'); inner.className = 'piece-detail-inner';
+                const parts = document.createElement('div'); parts.className = 'parts-grid';
+                for (const part of piece.parts) {
+                    const button = document.createElement('div'); button.className = 'part-card';
+                    button.tabIndex = 0; button.setAttribute('role', 'button'); button.title = '點擊編輯此分部';
+                    const name = document.createElement('div'); name.className = 'part-name'; name.textContent = part.name + ' ✏️';
+                    const insts = document.createElement('div'); insts.className = 'part-insts';
+                    insts.textContent = part.instruments.map(i => i.name + (i.remark ? ` (${i.remark})` : '')).join(', ') || '無設定樂器';
+                    const player = document.createElement('div'); player.className = 'part-players'; player.textContent = part.player ? '🎵 ' + part.player : '';
+                    const edit = () => this.editPart(perf.name, piece.id, part.name, part.rowIndexes);
+                    button.onclick = edit;
+                    button.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); edit(); } };
+                    button.append(name, insts, player); parts.append(button);
+                }
+                inner.append(parts); detail.append(inner); wrapper.append(detail);
+                const toggle = () => { wrapper.classList.toggle('expanded'); summary.setAttribute('aria-expanded', String(wrapper.classList.contains('expanded'))); };
+                summary.onclick = toggle;
+                summary.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } };
+                item.append(summary, wrapper); list.append(item);
+            }
+            card.append(list); this.perfContainer.append(card);
         }
-
-        let hasVisiblePerformances = false;
-
-        this.data.performances.forEach(perf => {
-            if (perf.name === '樂器標籤') return; // Option A: Hide fake performance from UI
-
-            hasVisiblePerformances = true;
-            const card = document.createElement('div');
-            card.className = 'perf-card';
-
-            let piecesHtml = '<ul class="piece-list">';
-            perf.pieces.forEach(piece => {
-                const partsCount = piece.parts.length;
-                let composerText = piece.composer ? piece.composer + ' 曲' : '';
-                let metaText = [composerText, `${partsCount} 個分部`].filter(Boolean).join(' • ');
-
-                let partsHtml = '<div class="parts-grid">';
-                piece.parts.forEach(part => {
-                    let instsText = part.instruments.map(i => i.name + (i.remark ? ` (${i.remark})` : '')).join(', ');
-                    if (!instsText) instsText = '<span style="color:var(--text-muted)">無設定樂器</span>';
-                    // Extract player info from the first instrument (shared per part)
-                    const playerText = (part.instruments[0] && part.instruments[0].player) ? part.instruments[0].player : '';
-                    const playerHtml = playerText ? `<div class="part-players" style="font-size:11px; color:var(--secondary); margin-top:4px;">🎵 ${playerText}</div>` : '';
-                    // Convert rowIndexes to JSON string to pass it safely in the onclick handler
-                    const rowIdxStr = JSON.stringify(part.rowIndexes);
-                    partsHtml += `
-                        <div class="part-card" onclick="event.stopPropagation(); app.editPart('${perf.name}', '${piece.id}', '${part.name}', ${rowIdxStr})" style="cursor: pointer;" title="點擊編輯此分部">
-                            <div class="part-name">${part.name} <span style="float:right; opacity:0.5;">✏️</span></div>
-                            <div class="part-insts">${instsText}</div>
-                            ${playerHtml}
-                        </div>
-                    `;
-                });
-                partsHtml += '</div>';
-
-                piecesHtml += `
-                    <li class="piece-item">
-                        <div class="piece-summary" onclick="app.togglePieceDetail(this)">
-                            <span class="piece-title">${piece.title}</span>
-                            <span class="piece-meta">${metaText}</span>
-                        </div>
-                        <div class="piece-detail-wrapper">
-                            <div class="piece-detail">
-                                <div class="piece-detail-inner">
-                                    ${partsHtml}
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-                `;
-            });
-            piecesHtml += '</ul>';
-
-            card.innerHTML = `
-                <h3>${perf.name}</h3>
-                ${piecesHtml}
-            `;
-            this.perfContainer.appendChild(card);
-        });
-
-        if (!hasVisiblePerformances && this.data.performances.length > 0) {
-            this.perfContainer.innerHTML = '<p style="color:var(--text-muted)">目前只有設定標籤，尚未有正式的表演資料。</p>';
-        }
+        if (!this.perfContainer.children.length) this.perfContainer.textContent = '目前沒有演出資料，點擊「新增曲目/分部」開始建立。';
     },
 
     populateSummarySelect() {
@@ -490,105 +451,44 @@ const App = {
     },
 
     renderSummary(perfName) {
-        if (!perfName) {
-            this.summaryContainer.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">請從上方選擇一場演出以查看樂器總表。</p>';
-            return;
-        }
-
+        this.summaryContainer.replaceChildren();
         const perf = this.data.performances.find(p => p.name === perfName);
-        if (!perf) return;
-
-        // 計算每種樂器所需數量並記錄列索引
-        const instMap = new Map();
-        perf.pieces.forEach(piece => {
-            piece.parts.forEach(part => {
-                part.instruments.forEach(inst => {
-                    const name = inst.name.trim();
-                    if (name) {
-                        if (!instMap.has(name)) {
-                            instMap.set(name, { count: 0, checkedCount: 0, rowIndexes: [] });
-                        }
-                        const entry = instMap.get(name);
-                        entry.count++;
-                        entry.rowIndexes.push(inst.rowIndex);
-                        if (inst.remark === '已清點' || inst.remark === 'checked') {
-                            entry.checkedCount++;
-                        }
-                    }
-                });
-            });
-        });
-
-        const entries = Array.from(instMap.entries());
-        if (entries.length === 0) {
-            this.summaryContainer.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">此演出尚未設定任何樂器。</p>';
-            return;
-        }
-
-        // Sort by count descending
-        entries.sort((a, b) => b[1].count - a[1].count);
-
-        let tableHtml = `
-            <table class="summary-table">
-                <thead><tr>
-                    <th style="width: 50px; text-align: center;">清點</th>
-                    <th>樂器名稱 (Instrument)</th>
-                    <th>需求數量 (Count)</th>
-                </tr></thead>
-                <tbody>
-        `;
-
-        for (const [name, data] of entries) {
-            const isChecked = data.checkedCount === data.count;
-            const rowIdxsJson = JSON.stringify(data.rowIndexes);
-            const style = isChecked ? 'text-decoration: line-through; color: var(--text-muted);' : '';
-            tableHtml += `
-                <tr class="${isChecked ? 'checked-row' : ''}">
-                    <td style="text-align: center;">
-                        <input type="checkbox" 
-                               style="transform: scale(1.5); cursor: pointer;"
-                               ${isChecked ? 'checked' : ''} 
-                               onchange='App.toggleInstrumentCheck("${perfName}", "${name}", this.checked, ${rowIdxsJson})'>
-                    </td>
-                    <td style="${style}">${name}</td>
-                    <td style="${style}"><strong style="font-size:16px; ${isChecked ? '' : 'color:var(--primary);'}">${data.count}</strong></td>
-                </tr>
-            `;
-        }
-
-        tableHtml += `</tbody></table>`;
-        this.summaryContainer.innerHTML = tableHtml;
-    },
-
-    async toggleInstrumentCheck(perfName, instName, isChecked, rowIndexes) {
-        const remark = isChecked ? '已清點' : '';
-        
-        try {
-            // Optimistic UI update
-            const perf = this.data.performances.find(p => p.name === perfName);
-            if (perf) {
-                perf.pieces.forEach(piece => {
-                    piece.parts.forEach(part => {
-                        part.instruments.forEach(inst => {
-                            if (rowIndexes.includes(inst.rowIndex)) {
-                                inst.remark = remark;
-                            }
-                        });
-                    });
-                });
+        if (!perf) { this.summaryContainer.textContent = '請選擇一場演出以查看樂器總表。'; return; }
+        const map = new Map();
+        for (const piece of perf.pieces) {
+            const counts = new Map();
+            for (const part of piece.parts) for (const inst of part.instruments) {
+                const name = inst.name.trim();
+                if (!map.has(name)) map.set(name, { uses: 0, needed: 0, checked: true, rows: [] });
+                const entry = map.get(name); entry.uses++; entry.rows.push(inst.rowIndex); entry.checked &&= inst.checked;
+                counts.set(name, (counts.get(name) || 0) + 1);
             }
-            this.renderSummary(perfName);
-
-            // Send to backend
-            await this.postData({
-                action: 'update_remark',
-                performance_name: perfName,
-                row_indexes: rowIndexes,
-                remark: remark
-            });
-        } catch (e) {
-            console.warn('Update remark failed locally:', e);
+            // Different pieces play sequentially; use the largest per-piece demand.
+            for (const [name, count] of counts) map.get(name).needed = Math.max(map.get(name).needed, count);
         }
+        if (!map.size) { this.summaryContainer.textContent = '此演出尚未設定樂器。'; return; }
+        const note = document.createElement('p'); note.className = 'summary-note';
+        note.textContent = '建議備妥數量取各曲目需求的最大值；配置次數是整場演出的累計。共用與特殊配置仍請由場務確認。';
+        const table = document.createElement('table'); table.className = 'summary-table';
+        const header = table.createTHead().insertRow();
+        for (const label of ['清點', '樂器名稱', '建議備妥', '配置次數']) { const th = document.createElement('th'); th.textContent = label; header.append(th); }
+        const tbody = table.createTBody();
+        for (const [name, data] of [...map].sort((a, b) => b[1].needed - a[1].needed)) {
+            const row = tbody.insertRow();
+            const check = document.createElement('input'); check.type = 'checkbox'; check.checked = data.checked;
+            check.setAttribute('aria-label', name + '已清點');
+            check.onchange = async () => {
+                check.disabled = true;
+                try {
+                    await this.postData({ action: 'set_checked', performance_name: perfName, row_indexes: data.rows, checked: check.checked });
+                    await this.fetchData(); this.switchView('view-summary');
+                } catch (error) { check.checked = data.checked; alert(error.message); }
+                finally { check.disabled = false; }
+            };
+            row.insertCell().append(check);
+            for (const value of [name, data.needed, data.uses]) row.insertCell().textContent = value;
+        }
+        this.summaryContainer.append(note, table);
     },
 
     showLoader(show) {
@@ -640,7 +540,7 @@ const App = {
             sort: false,
             onEnd: (evt) => {
                 if (evt.to === selectedZone) {
-                    evt.item.onclick = () => evt.item.remove();
+                    this.configureSelectedInstrumentTag(evt.item);
                 }
             }
         });
@@ -668,6 +568,11 @@ const App = {
 
     resetBuilder() {
         this.editingRowIndexes = null; // Clear edit mode
+        this.originalPerformanceName = null;
+        this.editingInstruments = [];
+        document.getElementById('delete-part-btn').classList.add('hidden');
+        document.getElementById('input-composer').value = '';
+        document.getElementById('input-arranger').value = '';
 
         document.getElementById('input-perf').value = '';
         document.getElementById('input-title').value = '';
@@ -698,6 +603,11 @@ const App = {
 
         // Set edit mode data
         this.editingRowIndexes = rowIndexes;
+        this.originalPerformanceName = perfName;
+        this.editingInstruments = part.instruments;
+        document.getElementById('delete-part-btn').classList.remove('hidden');
+        document.getElementById('input-composer').value = piece.composer;
+        document.getElementById('input-arranger').value = piece.arranger;
 
         // Pre-fill the form
         document.getElementById('input-perf').value = perf.name;
@@ -711,16 +621,17 @@ const App = {
         selectedZone.innerHTML = ''; // clear default empty
         part.instruments.forEach(inst => {
             if (inst.name) {
-                this.createInstrumentTag(inst.name, selectedZone, false);
+                const tag = this.createInstrumentTag(inst.name, selectedZone, false);
+                tag.querySelector('input').value = inst.remark;
+                tag.dataset.checked = String(inst.checked);
             }
         });
 
         // Pre-fill selected players
         const selectedPlayerZone = document.getElementById('selected-players');
         selectedPlayerZone.innerHTML = '';
-        const firstInst = part.instruments[0];
-        if (firstInst && firstInst.player) {
-            firstInst.player.split(',').forEach(p => {
+        if (part.player) {
+            part.player.split(',').forEach(p => {
                 if (p.trim()) {
                     this.createPlayerTag(p.trim(), selectedPlayerZone, false);
                 }
@@ -771,17 +682,28 @@ const App = {
         if (isPoolItem) {
             // Support tap to add on mobile
             tag.onclick = () => {
-                const clone = tag.cloneNode(true);
-                clone.onclick = () => clone.remove();
-                document.getElementById('selected-instruments').appendChild(clone);
+                this.createInstrumentTag(name, document.getElementById('selected-instruments'), false);
             };
         } else {
-            // Already in selected zone
-            tag.onclick = () => tag.remove();
+            this.configureSelectedInstrumentTag(tag);
         }
 
         container.appendChild(tag);
         return tag;
+    },
+
+    configureSelectedInstrumentTag(tag) {
+        tag.replaceChildren();
+        tag.classList.add('selected-instrument');
+        const name = document.createElement('span'); name.textContent = tag.dataset.name;
+        const remark = document.createElement('input'); remark.type = 'text'; remark.maxLength = 1000;
+        remark.placeholder = '備註（選填）'; remark.setAttribute('aria-label', tag.dataset.name + '備註');
+        remark.onclick = event => event.stopPropagation();
+        const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '×';
+        remove.setAttribute('aria-label', '移除 ' + tag.dataset.name);
+        remove.onclick = () => tag.remove();
+        tag.onclick = null;
+        tag.append(name, remark, remove);
     },
 
     createPlayerTag(name, container, isPoolItem) {
@@ -827,13 +749,6 @@ const App = {
         const name = input.value.trim();
         if (name) {
             this.createPlayerTag(name, document.getElementById('selected-players'), false);
-            // Immediately add to backend pool silently
-            try {
-                this.postData({
-                    action: 'ADD_PLAYER',
-                    player_name: name
-                });
-            } catch (e) { console.warn(e); }
             input.value = '';
         }
     },
@@ -855,7 +770,11 @@ const App = {
         // Gather instruments from the selected zone
         const selectedZone = document.getElementById('selected-instruments');
         const instTags = selectedZone.querySelectorAll('.inst-tag');
-        const instruments = Array.from(instTags).map(t => t.dataset.name);
+        const instruments = Array.from(instTags).map(t => ({
+            name: t.dataset.name,
+            remark: t.querySelector('input')?.value.trim() || '',
+            checked: t.dataset.checked === 'true'
+        }));
 
         // Gather players from the selected zone
         const selectedPlayerZone = document.getElementById('selected-players');
@@ -878,52 +797,63 @@ const App = {
                     instrument_name: '', player_name: playersStr, instrument_remark: ''
                 });
             } else {
-                for (const instName of instruments) {
+                for (const inst of instruments) {
                     createRows.push({
                         title: title, part_name: partName,
-                        instrument_name: instName, player_name: playersStr, instrument_remark: ''
+                        instrument_name: inst.name, player_name: playersStr,
+                        instrument_remark: inst.remark,
+                        checked: inst.checked
                     });
                 }
             }
 
+            for (const row of createRows) {
+                row.composer = document.getElementById('input-composer').value.trim();
+                row.arranger = document.getElementById('input-arranger').value.trim();
+            }
             await this.postData({
                 action: 'batch_save',
                 performance_name: perfName,
+                original_performance_name: this.originalPerformanceName || perfName,
                 delete_rows: deleteRows,
                 create_rows: createRows
             });
 
             this.closeModal();
         } catch (e) {
-            console.warn('Submit warning (data likely saved):', e);
-            this.closeModal();
+            alert('儲存失敗：' + e.message);
+            return;
         } finally {
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
         }
 
-        // Always refresh data after submit, regardless of try/catch outcome
-        await new Promise(resolve => setTimeout(resolve, 2500));
         await this.fetchData();
     },
 
-    async postData(payload) {
-        const sheetId = this.getSheetId();
-        if (!sheetId) {
-            alert('尚未設定試算表網址，無法寫入資料。');
-            return;
-        }
-
+    async deletePart() {
+        if (!this.editingRowIndexes?.length || !confirm('確定刪除此分部及其所有樂器配置？請先確認已下載所需備份。')) return;
+        const button = document.getElementById('delete-part-btn');
+        button.disabled = true;
         try {
-            const dataWithSheet = { ...payload, sheetId: sheetId };
-            await fetch(API_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                body: JSON.stringify(dataWithSheet)
-            });
-        } catch (e) {
-            console.warn('Opaque POST threw an error (usually expected due to GAS 302 redirect):', e);
-        }
+            await this.postData({ action: 'batch_save', performance_name: this.originalPerformanceName,
+                delete_rows: this.editingRowIndexes, create_rows: [] });
+            this.closeModal();
+            await this.fetchData();
+        } catch (error) { alert(error.message); }
+        finally { button.disabled = false; }
+    },
+
+    async postData(payload) {
+        // Serialize writes within a tab and keep the version current.
+        const execute = async () => {
+            const data = await this.request('/api/data', { ...payload, revision: this.revision });
+            this.revision = data.revision;
+            return data;
+        };
+        const pending = (this.pendingWrite || Promise.resolve()).then(execute);
+        this.pendingWrite = pending.catch(() => {});
+        return pending;
     },
 
     renderGlobalInstruments() {
@@ -964,8 +894,6 @@ const App = {
 
             input.value = '';
 
-            // Give Google Sheets time to persist
-            await new Promise(resolve => setTimeout(resolve, 2000));
             await this.fetchData();
         } catch (e) {
             console.error('Submit error:', e);

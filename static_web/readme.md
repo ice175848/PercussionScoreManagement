@@ -1,5 +1,7 @@
 # 打擊樂譜配置與樂器庫管理系統 (Percussion Score Management)
 
+> 本文件記錄舊版 Google Sheet 架構。`codex` 分支現行版本使用 Cloudflare Workers + D1，請以根目錄 [README](../README.md) 與 [部署說明](../docs/DEPLOYMENT.md) 為準；新版本不需要將資料庫公開共用。
+
 這是一個純靜態 (SPA) 網頁應用程式，專為打擊樂團的排練與演出需求設計。您可以利用此系統輕鬆規劃每首曲目的樂器配置，並快速統計每一場演出所需要的樂器總表。
 
 ---

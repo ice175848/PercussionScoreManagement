@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=6">
+    <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
     <div class="background-blobs">
@@ -83,30 +83,39 @@
                 <div class="view-header">
                     <h2>系統設定</h2>
                 </div>
-                <div class="glass-panel" style="padding: 24px; margin-top: 16px;">
-                    <p style="color: var(--text-muted); margin-bottom: 20px;">
-                        請在此設定您的專屬資料庫連結。這項設定只會儲存在您的瀏覽器中，不需修改任何程式碼。
-                    </p>
-                    
-                    <div class="form-group" style="margin-top: 16px;">
-                        <label>Google 試算表網址 (必填)</label>
-                        <input type="text" id="setting-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
-                        <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">請貼上您的專屬 Google 試算表網址。請確認該試算表已開啟「知道連結的任何人均可編輯」權限。</p>
-                        <div style="margin-top: 12px;">
-                            <button class="action-btn secondary mini" id="btn-open-sheet" onclick="app.openSheet()">🔗 快速開啟我的資料庫</button>
+                <div class="glass-panel settings-panel">
+                    <p id="connection-status" role="status" aria-live="polite">正在連線…</p>
+                    <form id="login-form" onsubmit="app.login(event)">
+                        <div class="form-group">
+                            <label for="setting-admin-key">管理金鑰</label>
+                            <input id="setting-admin-key" type="password" required autocomplete="current-password" placeholder="輸入管理者提供的金鑰">
                         </div>
+                        <button class="action-btn primary" type="submit">登入</button>
+                    </form>
+                    <button id="logout-btn" class="action-btn secondary hidden" onclick="app.logout()">登出</button>
+                    <hr>
+                    <h3>備份與搬移資料</h3>
+                    <p>備份包含演出、曲目、分部、演奏者、樂器及清點紀錄。匯入僅適用於尚無演出配置的資料庫。</p>
+                    <div class="settings-actions">
+                        <button class="action-btn secondary" onclick="app.exportData()">下載 JSON 備份</button>
+                        <label class="action-btn secondary" for="import-file">匯入 JSON</label>
+                        <input id="import-file" type="file" accept=".json,application/json" onchange="app.importData(this)">
+                        <button class="action-btn secondary" onclick="app.fetchData()">重新載入資料</button>
                     </div>
-
-                    <div style="margin-top: 32px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 16px; text-align: right;">
-                        <button class="action-btn primary" onclick="app.saveSettings()">儲存設定並載入資料</button>
-                    </div>
+                    <details>
+                        <summary>從原本的 Google Sheet 搬移</summary>
+                        <p>使用舊版 Apps Script 下載資料備份，確認內容後再匯入。舊版 API 讀取時可能自動補齊工作表及標頭；請先在 Google 試算表建立副本。</p>
+                        <label for="setting-sheet-url">原本的 Google 試算表網址</label>
+                        <input type="url" id="setting-sheet-url" placeholder="https://docs.google.com/spreadsheets/d/...">
+                        <button class="action-btn secondary" onclick="app.exportSheet()">下載舊試算表資料</button>
+                    </details>
                 </div>
             </section>
         </main>
     </div>
 
     <!-- Interactive Builder Modal -->
-    <div id="crud-modal" class="modal hidden">
+    <div id="crud-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div class="modal-content glass-panel builder-modal">
             <div class="modal-header">
                 <h3 id="modal-title">樂譜配置建立器</h3>
@@ -125,6 +134,14 @@
                         <label>曲目名稱</label>
                         <input type="text" id="input-title" required placeholder="選擇或輸入..." autocomplete="off">
                         <div id="autocomplete-title" class="autocomplete-items hidden"></div>
+                    </div>
+                    <div class="form-group">
+                        <label for="input-composer">作曲者</label>
+                        <input id="input-composer" type="text" maxlength="1000" placeholder="選填">
+                    </div>
+                    <div class="form-group">
+                        <label for="input-arranger">編曲者</label>
+                        <input id="input-arranger" type="text" maxlength="1000" placeholder="選填">
                     </div>
                     
                     <div class="form-group">
@@ -172,6 +189,7 @@
             </div>
 
             <div class="form-actions">
+                <button id="delete-part-btn" type="button" class="action-btn secondary hidden" onclick="app.deletePart()">刪除此分部</button>
                 <button type="button" class="action-btn secondary" onclick="app.closeModal()">取消</button>
                 <button type="button" class="action-btn primary" onclick="app.submitBuilder()">儲存配置</button>
             </div>
@@ -179,7 +197,7 @@
     </div>
 
     <!-- SortableJS for Drag and Drop -->
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
-    <script src="app.js?v=19"></script>
+    <script src="vendor/Sortable.min.js"></script>
+    <script src="app.js?v=20"></script>
 </body>
 </html>
