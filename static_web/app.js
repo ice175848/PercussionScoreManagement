@@ -35,7 +35,6 @@ const App = {
         this.summarySelect.addEventListener('change', (e) => this.renderSummary(e.target.value));
 
         this.setupAutocompleteEvents();
-        this.initBuilder();
     },
 
     roles: { owner: '擁有者', admin: '管理員', editor: '編輯者', viewer: '唯讀成員' },
@@ -663,47 +662,18 @@ const App = {
     },
 
     // --- Interactive Builder Logic ---
-    initBuilder() {
-        // Initialize Sortable for drag and drop
-        const selectedZone = document.getElementById('selected-instruments');
-        const poolZone = document.getElementById('available-instruments');
+    performancePreferenceKey() {
+        return this.user?.id && this.bandId
+            ? `percussion-last-performance:${this.user.id}:${this.bandId}` : null;
+    },
 
-        this.selectedSortable = new Sortable(selectedZone, {
-            group: 'shared',
-            animation: 150,
-            ghostClass: 'sortable-ghost',
-        });
-
-        this.poolSortable = new Sortable(poolZone, {
-            group: { name: 'shared', pull: 'clone', put: false },
-            animation: 150,
-            sort: false,
-            onEnd: (evt) => {
-                if (evt.to === selectedZone) {
-                    this.configureSelectedInstrumentTag(evt.item);
-                }
-            }
-        });
-
-        const selectedPlayerZone = document.getElementById('selected-players');
-        const poolPlayerZone = document.getElementById('available-players');
-
-        this.selectedPlayerSortable = new Sortable(selectedPlayerZone, {
-            group: 'players',
-            animation: 150,
-            ghostClass: 'sortable-ghost',
-        });
-
-        this.poolPlayerSortable = new Sortable(poolPlayerZone, {
-            group: { name: 'players', pull: 'clone', put: false },
-            animation: 150,
-            sort: false,
-            onEnd: (evt) => {
-                if (evt.to === selectedPlayerZone) {
-                    evt.item.onclick = () => evt.item.remove();
-                }
-            }
-        });
+    lastPerformanceName() {
+        const key = this.performancePreferenceKey();
+        try {
+            const saved = key && localStorage.getItem(key);
+            if (saved) return saved;
+        } catch { /* Browser storage may be disabled; existing data remains available. */ }
+        return this.getUniquePerformances().at(-1) || '';
     },
 
     resetBuilder() {
@@ -714,7 +684,7 @@ const App = {
         document.getElementById('input-composer').value = '';
         document.getElementById('input-arranger').value = '';
 
-        document.getElementById('input-perf').value = '';
+        document.getElementById('input-perf').value = this.lastPerformanceName();
         document.getElementById('input-title').value = '';
         document.getElementById('input-new-part').value = '';
         document.getElementById('input-new-inst').value = '';
@@ -896,6 +866,7 @@ const App = {
 
     async submitBuilder() {
         const perfName = document.getElementById('input-perf').value.trim();
+        const preferenceKey = this.performancePreferenceKey();
         const title = document.getElementById('input-title').value.trim();
 
         // Determine part name (active chip OR input)
@@ -960,6 +931,8 @@ const App = {
                 create_rows: createRows
             });
 
+            try { if (preferenceKey) localStorage.setItem(preferenceKey, perfName); }
+            catch { /* A saved configuration must not fail when local storage is disabled. */ }
             this.closeModal();
         } catch (e) {
             alert('儲存失敗：' + e.message);
@@ -1013,7 +986,7 @@ const App = {
             const tag = document.createElement('div');
             tag.className = 'inst-tag';
             tag.textContent = name;
-            // Display only, no dragging required here
+            // Instrument catalog labels are display-only.
             tag.style.cursor = 'default';
             this.globalInstPool.appendChild(tag);
         });

@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
     <div class="background-blobs">
@@ -221,15 +221,15 @@
                     </div>
                 </div>
 
-                <!-- 樂器拖曳區 -->
+                <!-- 樂器選擇區 -->
                 <div class="builder-section">
-                    <label>此分部的樂器清單 (拖曳排序 / 加入)</label>
-                    <div class="dnd-zone selected-zone" id="selected-instruments">
-                        <!-- Drop target -->
+                    <label>此分部的樂器清單</label>
+                    <div class="selection-zone selected-zone" id="selected-instruments">
+                        <!-- Selected items -->
                     </div>
 
-                    <label style="margin-top: 16px;">樂器庫 (拖曳或點擊以加入)</label>
-                    <div class="dnd-zone pool-zone" id="available-instruments">
+                    <label style="margin-top: 16px;">樂器庫（點選加入）</label>
+                    <div class="selection-zone pool-zone" id="available-instruments">
                         <!-- Pool of available instruments -->
                     </div>
                     <div class="add-inst-row">
@@ -238,15 +238,15 @@
                     </div>
                 </div>
 
-                <!-- 演奏者拖曳區 -->
+                <!-- 演奏者選擇區 -->
                 <div class="builder-section">
-                    <label>此分部的演奏者 (拖曳或點擊以加入)</label>
-                    <div class="dnd-zone selected-zone" id="selected-players">
-                        <!-- Drop target -->
+                    <label>此分部的演奏者（點選移除）</label>
+                    <div class="selection-zone selected-zone" id="selected-players">
+                        <!-- Selected items -->
                     </div>
 
-                    <label style="margin-top: 16px;">演奏者名冊 (拖曳或點擊以加入)</label>
-                    <div class="dnd-zone pool-zone" id="available-players">
+                    <label style="margin-top: 16px;">演奏者名冊（點選加入）</label>
+                    <div class="selection-zone pool-zone" id="available-players">
                         <!-- Pool of available players -->
                     </div>
                     <div class="add-inst-row">
@@ -264,8 +264,6 @@
         </div>
     </div>
 
-    <!-- SortableJS for Drag and Drop -->
-    <script src="vendor/Sortable.min.js"></script>
-    <script src="app.js?v=21"></script>
+    <script src="app.js?v=22"></script>
 </body>
 </html>

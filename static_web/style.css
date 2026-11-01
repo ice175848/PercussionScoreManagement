@@ -420,12 +420,12 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
     color: #f8fafc;
     font-size: 14px;
     font-weight: 500;
-    cursor: grab;
+    cursor: pointer;
     display: flex;
     align-items: center;
     gap: 6px;
     user-select: none;
-    touch-action: none; /* Required for touch drag */
+    touch-action: manipulation; /* Allow normal scrolling and tapping. */
     box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
     transition: transform 0.1s, box-shadow 0.1s, filter 0.2s;
     text-shadow: 0 1px 2px rgba(0,0,0,0.5);
@@ -436,7 +436,7 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 }
 
 .inst-tag:active {
-    cursor: grabbing;
+    cursor: pointer;
     transform: translateY(2px);
     box-shadow: 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05);
 }
@@ -478,7 +478,7 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 }
 
 /* Drag and Drop Zones */
-.dnd-zone {
+.selection-zone {
     min-height: 100px;
     max-height: 180px; /* Limit vertical height */
     overflow-y: auto; /* Enable vertical scroll if too many instruments */
@@ -494,10 +494,10 @@ main::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
 }
 
 /* Scrollbar for DND Zones */
-.dnd-zone::-webkit-scrollbar {
+.selection-zone::-webkit-scrollbar {
     width: 6px;
 }
-.dnd-zone::-webkit-scrollbar-thumb {
+.selection-zone::-webkit-scrollbar-thumb {
     background: rgba(255,255,255,0.2);
     border-radius: 6px;
 }
