@@ -15,6 +15,10 @@ const App = {
         this.viewSummary = document.getElementById('view-summary');
         this.viewInstruments = document.getElementById('view-instruments');
         this.perfContainer = document.getElementById('performances-container');
+        this.staffPanel = document.getElementById('staff-work');
+        this.staffSelect = document.getElementById('staff-performance');
+        this.staffStatus = document.getElementById('staff-work-status');
+        this.staffList = document.getElementById('staff-work-list');
         this.summaryContainer = document.getElementById('summary-container');
         this.summarySelect = document.getElementById('summary-perf-select');
         this.globalInstPool = document.getElementById('global-instruments-pool');
@@ -35,7 +39,11 @@ const App = {
         this.summarySelect.addEventListener('change', (e) => this.renderSummary(e.target.value));
 
         this.setupAutocompleteEvents();
-        document.getElementById('performance-sort').addEventListener('change', () => this.renderPerformances());
+        document.getElementById('performance-sort').addEventListener('change', () => {
+            this.renderPerformances();
+            this.renderStaffWork();
+        });
+        this.staffSelect.addEventListener('change', () => this.renderStaffWork());
         document.getElementById('performance-order-select').addEventListener('change', () => this.toggleCustomOrder(true));
         for (const id of ['input-perf', 'input-title']) {
             const input = document.getElementById(id);
@@ -66,6 +74,9 @@ const App = {
         this.data = { performances: [], globalInstruments: [], globalPlayers: [] };
         this.revision = undefined;
         this.perfContainer.replaceChildren(); this.summaryContainer.replaceChildren();
+        this.staffPanel.classList.add('hidden');
+        this.staffSelect.replaceChildren(); this.staffList.replaceChildren();
+        this.staffStatus.textContent = '';
         this.globalInstPool.replaceChildren(); this.summarySelect.replaceChildren();
         document.getElementById('band-members').replaceChildren();
         document.getElementById('band-invitations').replaceChildren();
@@ -442,6 +453,7 @@ const App = {
             this.revision = data.revision;
             this.processData(data);
             this.renderPerformances();
+            this.populateStaffSelect();
             const selected = this.summarySelect.value;
             this.populateSummarySelect();
             this.summarySelect.value = selected;
@@ -511,21 +523,29 @@ const App = {
             if (!partName) return; // If no part, just the piece is registered
 
             if (!piece.partsMap.has(partName)) {
-                piece.partsMap.set(partName, { name: partName, player: String(row.player_name || ''), instruments: [], rowIndexes: [] });
+                piece.partsMap.set(partName, { name: partName, player: String(row.player_name || ''), instruments: [], rowIndexes: [], assignments: new Map() });
             }
             const part = piece.partsMap.get(partName);
 
             // Record the row index for this specific entry so we can delete/edit it later
             if (row._row) part.rowIndexes.push(row._row);
 
-            if (row.instrument_name !== null && row.instrument_name !== undefined && String(row.instrument_name).trim() !== '') {
-                part.instruments.push({
-                    name: String(row.instrument_name).trim(),
+            const instrumentName = String(row.instrument_name ?? '').trim();
+            const instrument = instrumentName
+                ? {
+                    name: instrumentName,
                     player: row.player_name != null ? String(row.player_name).trim() : '',
                     remark: row.instrument_remark != null ? String(row.instrument_remark).trim() : '',
                     checked: Boolean(row.checked),
                     rowIndex: row._row
-                });
+                } : null;
+            if (instrument) part.instruments.push(instrument);
+
+            const players = new Set(String(row.player_name ?? '').split(/[,，、]/).map(name => name.trim()).filter(Boolean));
+            if (!players.size) players.add(null);
+            for (const player of players) {
+                if (!part.assignments.has(player)) part.assignments.set(player, []);
+                if (instrument) part.assignments.get(player).push(instrument);
             }
         });
 
@@ -539,16 +559,74 @@ const App = {
         }));
     },
 
+    orderedPieces(perf) {
+        const byOrder = document.getElementById('performance-sort').value === 'performance';
+        return byOrder ? [...perf.pieces].sort((a, b) => (a.order ?? 10000) - (b.order ?? 10000)) : perf.pieces;
+    },
+
+    populateStaffSelect() {
+        const performances = this.data.performances.filter(perf => perf.name !== '樂器標籤');
+        const saved = this.staffSelect.value || this.lastPerformanceName();
+        this.staffSelect.replaceChildren(...performances.map(perf => new Option(perf.name, perf.name)));
+        this.staffSelect.value = performances.some(perf => perf.name === saved) ? saved : performances.at(-1)?.name ?? '';
+        this.staffSelect.disabled = !performances.length;
+        this.staffPanel.classList.remove('hidden');
+        this.renderStaffWork();
+    },
+
+    renderStaffWork() {
+        this.staffList.replaceChildren();
+        const perf = this.data.performances.find(item => item.name === this.staffSelect.value);
+        if (!perf) {
+            this.staffStatus.textContent = '目前沒有演出可查看。';
+            return;
+        }
+        const byPlayer = new Map();
+        for (const piece of this.orderedPieces(perf)) {
+            for (const part of piece.parts) {
+                for (const [player, instruments] of part.assignments) {
+                    if (!byPlayer.has(player)) byPlayer.set(player, []);
+                    byPlayer.get(player).push({ piece, part, instruments });
+                }
+            }
+        }
+        if (!byPlayer.size) {
+            this.staffStatus.textContent = '這場演出還沒有分部配置。';
+            return;
+        }
+        const unassigned = byPlayer.get(null) ?? [];
+        const names = [...byPlayer.keys()].filter(name => name !== null).sort((a, b) => a.localeCompare(b, 'zh-TW'));
+        this.staffStatus.textContent = `${names.length} 位已指派演奏者${unassigned.length ? `・${unassigned.length} 個分部有未指派的工作` : '・所有工作皆已指派'}`;
+
+        for (const name of [...names, ...(unassigned.length ? [null] : [])]) {
+            const card = document.createElement('section');
+            card.className = name === null ? 'staff-card staff-card-unassigned' : 'staff-card';
+            const heading = document.createElement('h4');
+            heading.textContent = name ?? '未指派人員';
+            const list = document.createElement('ul');
+            for (const { piece, part, instruments } of byPlayer.get(name)) {
+                const row = document.createElement('li');
+                const title = document.createElement('strong');
+                title.textContent = `${piece.order == null ? '' : `第 ${piece.order} 首・`}${piece.title}`;
+                const work = document.createElement('span');
+                const labels = instruments.map(inst => inst.remark ? `${inst.name}（${inst.remark}）` : inst.name);
+                work.textContent = `${part.name}｜${labels.join('、') || '未指定樂器'}`;
+                row.append(title, work);
+                list.append(row);
+            }
+            card.append(heading, list);
+            this.staffList.append(card);
+        }
+    },
+
     renderPerformances() {
         this.perfContainer.replaceChildren();
-        const byOrder = document.getElementById('performance-sort').value === 'performance';
         for (const perf of this.data.performances) {
             if (perf.name === '樂器標籤') continue;
             const card = document.createElement('div'); card.className = 'perf-card';
             const heading = document.createElement('h3'); heading.textContent = perf.name; card.append(heading);
             const list = document.createElement('ul'); list.className = 'piece-list';
-            const pieces = byOrder ? [...perf.pieces].sort((a, b) => (a.order ?? 10000) - (b.order ?? 10000)) : perf.pieces;
-            for (const piece of pieces) {
+            for (const piece of this.orderedPieces(perf)) {
                 const item = document.createElement('li'); item.className = 'piece-item';
                 const summary = document.createElement('div'); summary.className = 'piece-summary';
                 summary.tabIndex = 0; summary.setAttribute('role', 'button');
