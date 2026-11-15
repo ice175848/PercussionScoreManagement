@@ -35,6 +35,12 @@ const App = {
         this.summarySelect.addEventListener('change', (e) => this.renderSummary(e.target.value));
 
         this.setupAutocompleteEvents();
+        document.getElementById('performance-sort').addEventListener('change', () => this.renderPerformances());
+        document.getElementById('performance-order-select').addEventListener('change', () => this.toggleCustomOrder(true));
+        for (const id of ['input-perf', 'input-title']) {
+            const input = document.getElementById(id);
+            for (const event of ['input', 'change']) input.addEventListener(event, () => this.refreshOrderOptions());
+        }
     },
 
     roles: { owner: '擁有者', admin: '管理員', editor: '編輯者', viewer: '唯讀成員' },
@@ -494,6 +500,7 @@ const App = {
                     id: pieceId, title: title,
                     composer: row.composer != null ? String(row.composer).trim() : '',
                     arranger: row.arranger != null ? String(row.arranger).trim() : '',
+                    order: row.performance_order ?? null,
                     partsMap: new Map()
                 });
             }
@@ -534,19 +541,21 @@ const App = {
 
     renderPerformances() {
         this.perfContainer.replaceChildren();
+        const byOrder = document.getElementById('performance-sort').value === 'performance';
         for (const perf of this.data.performances) {
             if (perf.name === '樂器標籤') continue;
             const card = document.createElement('div'); card.className = 'perf-card';
             const heading = document.createElement('h3'); heading.textContent = perf.name; card.append(heading);
             const list = document.createElement('ul'); list.className = 'piece-list';
-            for (const piece of perf.pieces) {
+            const pieces = byOrder ? [...perf.pieces].sort((a, b) => (a.order ?? 10000) - (b.order ?? 10000)) : perf.pieces;
+            for (const piece of pieces) {
                 const item = document.createElement('li'); item.className = 'piece-item';
                 const summary = document.createElement('div'); summary.className = 'piece-summary';
                 summary.tabIndex = 0; summary.setAttribute('role', 'button');
                 summary.setAttribute('aria-expanded', 'false');
                 const title = document.createElement('span'); title.className = 'piece-title'; title.textContent = piece.title;
                 const meta = document.createElement('span'); meta.className = 'piece-meta';
-                meta.textContent = [piece.composer && piece.composer + ' 曲', `${piece.parts.length} 個分部`].filter(Boolean).join(' • ');
+                meta.textContent = [piece.order != null && `第 ${piece.order} 首`, piece.composer && piece.composer + ' 曲', `${piece.parts.length} 個分部`].filter(Boolean).join(' • ');
                 summary.append(title, meta);
                 const wrapper = document.createElement('div'); wrapper.className = 'piece-detail-wrapper';
                 const detail = document.createElement('div'); detail.className = 'piece-detail';
@@ -676,6 +685,33 @@ const App = {
         return this.getUniquePerformances().at(-1) || '';
     },
 
+    toggleCustomOrder(focus = false) {
+        const manual = document.getElementById('performance-order-select').value === 'manual';
+        const input = document.getElementById('performance-order-custom');
+        input.classList.toggle('hidden', !manual);
+        document.getElementById('performance-order-custom-label').classList.toggle('hidden', !manual);
+        if (manual && focus) input.focus();
+    },
+
+    refreshOrderOptions(force = false) {
+        const performance = document.getElementById('input-perf').value.trim();
+        const title = document.getElementById('input-title').value.trim();
+        const key = JSON.stringify([performance, title]);
+        if (!force && this.orderTarget === key) return;
+        this.orderTarget = key;
+        const pieces = this.data.performances.find(p => p.name === performance)?.pieces ?? [];
+        const order = pieces.find(p => p.title === title)?.order ?? null;
+        const select = document.getElementById('performance-order-select');
+        const custom = document.getElementById('performance-order-custom');
+        const count = Math.min(100, Math.max(10, pieces.length + 1));
+        select.replaceChildren(new Option('未設定', ''));
+        for (let i = 1; i <= count; i++) select.add(new Option(`第 ${i} 首`, String(i)));
+        select.add(new Option('手動輸入…', 'manual'));
+        select.value = order == null ? '' : order <= count ? String(order) : 'manual';
+        custom.value = order > count ? order : '';
+        this.toggleCustomOrder();
+    },
+
     resetBuilder() {
         this.editingRowIndexes = null; // Clear edit mode
         this.originalPerformanceName = null;
@@ -691,6 +727,7 @@ const App = {
         document.getElementById('input-new-player').value = '';
         document.getElementById('selected-instruments').innerHTML = '';
         document.getElementById('selected-players').innerHTML = '';
+        this.refreshOrderOptions(true);
 
         // Render part chips and instrument pool based on current data
         this.renderBuilderOptions();
@@ -725,6 +762,7 @@ const App = {
         document.getElementById('input-title').value = piece.title;
         document.getElementById('input-new-part').value = part.name;
 
+        this.refreshOrderOptions();
         this.renderBuilderOptions();
 
         // Pre-fill selected instruments
@@ -878,6 +916,14 @@ const App = {
             alert('演出名稱、曲目名稱、分部 皆為必填！');
             return;
         }
+        const choice = document.getElementById('performance-order-select').value;
+        const customOrder = document.getElementById('performance-order-custom');
+        const order = choice === 'manual' ? customOrder.valueAsNumber : choice ? Number(choice) : null;
+        if (order !== null && (!Number.isInteger(order) || order < 1 || order > 9999)) {
+            alert('演出順序須為 1 至 9999 的整數。');
+            customOrder.focus();
+            return;
+        }
 
         // Gather instruments from the selected zone
         const selectedZone = document.getElementById('selected-instruments');
@@ -927,6 +973,7 @@ const App = {
                 action: 'batch_save',
                 performance_name: perfName,
                 original_performance_name: this.originalPerformanceName || perfName,
+                performance_order: order,
                 delete_rows: deleteRows,
                 create_rows: createRows
             });

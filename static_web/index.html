@@ -6,7 +6,7 @@
     <title>Percussion Score Management</title>
     <meta name="description" content="打擊樂器與樂譜管理系統">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
     <div class="background-blobs">
@@ -45,7 +45,13 @@
             <section id="view-performances" class="view hidden">
                 <div class="view-header">
                     <h2>近期演出</h2>
-                    <button class="action-btn primary" onclick="app.showCreateModal()">＋ 新增曲目/分部</button>
+                    <div class="performance-actions">
+                        <select id="performance-sort" class="glass-select" aria-label="演出清單排序">
+                            <option value="default">預設排序</option>
+                            <option value="performance">演出排序</option>
+                        </select>
+                        <button class="action-btn primary" onclick="app.showCreateModal()">＋ 新增曲目/分部</button>
+                    </div>
                 </div>
                 <div class="performances-grid" id="performances-container">
                     <!-- Cards will be injected here -->
@@ -204,6 +210,13 @@
                         <div id="autocomplete-title" class="autocomplete-items hidden"></div>
                     </div>
                     <div class="form-group">
+                        <label for="performance-order-select">演出順序</label>
+                        <select id="performance-order-select" class="glass-select" aria-describedby="performance-order-help"></select>
+                        <label for="performance-order-custom" id="performance-order-custom-label" class="hidden">手動輸入演出順序</label>
+                        <input id="performance-order-custom" class="hidden" type="number" min="1" max="9999" step="1" inputmode="numeric">
+                        <small id="performance-order-help">選填。同一場演出中，曲目的所有分部共用順序。未設定的曲目會排在最後。</small>
+                    </div>
+                    <div class="form-group">
                         <label for="input-composer">作曲者</label>
                         <input id="input-composer" type="text" maxlength="1000" placeholder="選填">
                     </div>
@@ -264,6 +277,6 @@
         </div>
     </div>
 
-    <script src="app.js?v=22"></script>
+    <script src="app.js?v=23"></script>
 </body>
 </html>

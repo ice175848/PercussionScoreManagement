@@ -50,3 +50,5 @@ npx wrangler deploy --dry-run
 ```
 
 公開檔案以 allowlist 建置。GitHub codex-web.yml 執行測試、建置與部署預檢，不自動部署網站。部署、Secrets、migration 與回滾規則見 [部署文件](docs/DEPLOYMENT.md)。
+
+新增或編輯樂譜配置時，可從「演出順序」選擇第幾首，或手動輸入 1–9999。同場演出的同一首曲目，其各分部共用順序。「演出清單」可切換「預設排序」及「演出排序」；演出排序依號碼由小到大，同號沿用預設相對順序，未設定者排在最後。

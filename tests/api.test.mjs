@@ -46,7 +46,7 @@ before(async () => {
     }),
   );
   db = await mf.getD1Database("DB");
-  for (const name of ["0001_initial.sql", "0002_accounts_and_bands.sql"]) {
+  for (const name of ["0001_initial.sql", "0002_accounts_and_bands.sql", "0003_performance_order.sql"]) {
     const sql = (await readFile(`migrations/${name}`, "utf8")).replace(
       /--[^\n]*/g,
       "",
@@ -281,6 +281,43 @@ test("export can restore to an empty database without losing notes, players or c
     exported.performances.map(withoutId),
   );
 });
+test("performance order is shared across parts, scoped to one concert, and survives backup", async () => {
+  const snapshot = async () => (await request("/api/data")).json();
+  const save = async (performance_name, create_rows, extra = {}) =>
+    request("/api/data", {
+      action: "batch_save", revision: (await snapshot()).revision,
+      performance_name, create_rows, ...extra,
+    });
+  const row = (part_name) => ({ title: "Shared title", part_name });
+  assert.equal((await save("Concert 1", [row("P1")], { performance_order: 30 })).status, 200);
+  assert.equal((await save("Concert 1", [row("P2")])).status, 200);
+  assert.equal((await save("Concert 2", [row("P1")], { performance_order: 9 })).status, 200);
+  let data = await snapshot();
+  const inConcert = (name) => data.performances.filter(r => r.performance_name === name);
+  assert.deepEqual(inConcert("Concert 1").map(r => r.performance_order), [30, 30]);
+  assert.equal((await save("Concert 1", [row("P2")], {
+    performance_order: 2, delete_rows: [inConcert("Concert 1")[1]._row],
+  })).status, 200);
+  data = await snapshot();
+  assert.deepEqual(inConcert("Concert 1").map(r => r.performance_order), [2, 2]);
+  assert.equal(inConcert("Concert 2")[0].performance_order, 9);
+  for (const invalid of [0, -1, 1.5, 10000, "3"]) {
+    assert.equal((await save("Concert 1", [row("P3")], { performance_order: invalid })).status, 400);
+  }
+  assert.equal((await save("Concert 2", [row("P1")], {
+    delete_rows: [inConcert("Concert 2")[0]._row],
+  })).status, 200);
+  data = await snapshot();
+  assert.equal(inConcert("Concert 2")[0].performance_order, 9);
+  assert.equal((await save("Concert 1", [row("P3")], { performance_order: null })).status, 200);
+  data = await snapshot();
+  assert.deepEqual(inConcert("Concert 1").map(r => r.performance_order), [null, null, null]);
+  await db.prepare("DELETE FROM band_score_rows").run();
+  assert.equal((await request("/api/data", { action: "import", revision: data.revision, data })).status, 200);
+  data = await snapshot();
+  assert.equal(inConcert("Concert 2")[0].performance_order, 9);
+});
+
 test("login rate limiting and logout cookie removal", async () => {
   let response;
   for (let i = 0; i < 7; i++)

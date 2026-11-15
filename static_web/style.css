@@ -771,3 +771,8 @@ input:focus, select:focus {
 .workspace-form textarea { width:100%; background:transparent; color:inherit; border:1px solid #ffffff44; padding:10px; overflow-wrap:anywhere; }
 .member-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 0; padding:12px; border-bottom:1px solid #ffffff22; }
 .member-row span { flex:1; min-width:140px; overflow-wrap:anywhere; }
+
+.performance-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.performance-actions .glass-select { width: auto; }
+#performance-order-select { width: 100%; }
+#performance-order-help { display: block; color: var(--text-muted); margin-top: 6px; }

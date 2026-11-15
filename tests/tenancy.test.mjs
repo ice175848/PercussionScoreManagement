@@ -131,6 +131,7 @@ before(async () => {
     .run();
   await db.prepare("UPDATE metadata SET revision=17").run();
   await migrate("0002_accounts_and_bands.sql");
+  await migrate("0003_performance_order.sql");
   alice = await register("alice");
   bob = await register("bob");
   editor = await register("editor");

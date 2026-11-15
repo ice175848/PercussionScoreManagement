@@ -38,6 +38,13 @@ function text(value, required = false) {
     throw new HttpError(400, "必填欄位缺漏或超過 1000 字");
   return result;
 }
+function performanceOrder(value) {
+  if (value == null) return null;
+  if (!Number.isInteger(value) || value < 1 || value > 9999)
+    throw new HttpError(400, "演出順序須為 1 至 9999 的整數");
+  return value;
+}
+
 function rows(values, perfName) {
   if (!Array.isArray(values) || values.length > 5000)
     throw new HttpError(400, "資料須為陣列，單次最多 5000 筆");
@@ -45,6 +52,7 @@ function rows(values, perfName) {
     if (!row || typeof row !== "object" || Array.isArray(row))
       throw new HttpError(400, "資料列格式錯誤");
     return {
+      performance_order: performanceOrder(row.performance_order),
       ...Object.fromEntries(
         FIELDS.map((field) => [
           field,
@@ -136,7 +144,7 @@ async function snapshot(db, band) {
       .bind(band),
     db
       .prepare(
-        "SELECT id AS _row, performance_name, title, composer, arranger, part_name, player_name, instrument_name, instrument_remark, checked FROM band_score_rows WHERE band_id=? ORDER BY id",
+        "SELECT id AS _row, performance_name, title, composer, arranger, part_name, player_name, instrument_name, instrument_remark, checked, performance_order FROM band_score_rows WHERE band_id=? ORDER BY id",
       )
       .bind(band),
   ]);
@@ -149,11 +157,16 @@ async function snapshot(db, band) {
     performances: result[3].results,
   };
 }
-function insertRows(db, data, band) {
+function insertRows(db, data, band, inheritOrder = false) {
   // json_each uses one statement so imports stay within the Free subrequest budget.
   return db
     .prepare(
-      `INSERT INTO band_score_rows (band_id,${FIELDS.join(",")},checked) SELECT ?,${[...FIELDS, "checked"].map((f) => `json_extract(value,'$.${f}')`).join(",")} FROM json_each(?)`,
+      `INSERT INTO band_score_rows (band_id,${FIELDS.join(",")},checked,performance_order)
+       SELECT ?1,${[...FIELDS, "checked"].map((f) => `json_extract(j.value,'$.${f}')`).join(",")},
+       ${inheritOrder ? `(SELECT s.performance_order FROM band_score_rows s
+         WHERE s.band_id=?1 AND s.performance_name=json_extract(j.value,'$.performance_name')
+         AND s.title=json_extract(j.value,'$.title') LIMIT 1)` : "json_extract(j.value,'$.performance_order')"}
+       FROM json_each(?2) j`,
     )
     .bind(band, JSON.stringify(data));
 }
@@ -189,6 +202,11 @@ async function mutate(db, payload, band, user) {
     const perf = text(payload.performance_name, true);
     const deleted = ids(payload.delete_rows ?? []);
     const created = rows(payload.create_rows, perf);
+    const setsOrder = Object.hasOwn(payload, "performance_order");
+    const order = setsOrder ? performanceOrder(payload.performance_order) : null;
+    const titles = [...new Set(created.map((row) => row.title))];
+    if (setsOrder && titles.length !== 1)
+      throw new HttpError(400, "請指定一首曲目的演出順序");
     // Validate deletion scope inside the transaction. Never delete another performance's rows.
     statements.push(
       db
@@ -203,13 +221,21 @@ async function mutate(db, payload, band, user) {
         ),
     );
     statements.push(
+      // Insert before removing old rows so older clients still inherit the order.
+      insertRows(db, created, band, true),
       db
         .prepare(
           "DELETE FROM band_score_rows WHERE band_id=? AND id IN (SELECT value FROM json_each(?))",
         )
         .bind(band, JSON.stringify(deleted)),
-      insertRows(db, created, band),
     );
+    if (setsOrder) {
+      statements.push(
+        db.prepare(
+          "UPDATE band_score_rows SET performance_order=? WHERE band_id=? AND performance_name=? AND title=? AND performance_order IS NOT ?",
+        ).bind(order, band, perf, titles[0], order),
+      );
+    }
     // Keep newly entered instruments and players in their global pools.
     const instruments = [
       ...new Set(created.map((r) => r.instrument_name).filter(Boolean)),
@@ -269,6 +295,16 @@ async function mutate(db, payload, band, user) {
     if (source.version !== undefined && source.version !== 1)
       throw new HttpError(400, "不支援此備份版本");
     const imported = rows(source.performances);
+    const orders = new Map();
+    for (const row of imported) {
+      if (row.performance_order === null) continue;
+      const piece = JSON.stringify([row.performance_name, row.title]);
+      if (orders.has(piece) && orders.get(piece) !== row.performance_order)
+        throw new HttpError(400, "同一場演出的同一首曲目不能有不同順序");
+      orders.set(piece, row.performance_order);
+    }
+    for (const row of imported)
+      row.performance_order = orders.get(JSON.stringify([row.performance_name, row.title])) ?? null;
     const pool = (list = []) => {
       if (!Array.isArray(list) || list.length > 5000)
         throw new HttpError(400, "名冊格式錯誤");
