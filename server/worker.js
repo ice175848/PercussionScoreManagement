@@ -10,6 +10,7 @@ const FIELDS = [
 ];
 const MAX_BODY = 2_000_000;
 const SESSION_SECONDS = 8 * 60 * 60;
+const REMEMBER_SESSION_SECONDS = 30 * 24 * 60 * 60;
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -83,9 +84,10 @@ function ids(values) {
     throw new HttpError(400, "資料 ID 格式錯誤");
   return [...new Set(values)];
 }
-async function body(request) {
-  if (!request.headers.get("Content-Type")?.startsWith("application/json"))
-    throw new HttpError(415, "請使用 JSON");
+async function body(request, form = false) {
+  const contentType = form ? "application/x-www-form-urlencoded" : "application/json";
+  if (!request.headers.get("Content-Type")?.startsWith(contentType))
+    throw new HttpError(415, form ? "表單格式錯誤" : "請使用 JSON");
   const reader = request.body?.getReader();
   if (!reader) throw new HttpError(400, "缺少 JSON");
   let size = 0;
@@ -107,7 +109,17 @@ async function body(request) {
       bytes.set(chunk, offset);
       offset += chunk.length;
     }
-    const value = JSON.parse(new TextDecoder().decode(bytes));
+    const raw = new TextDecoder().decode(bytes);
+    if (form) {
+      const fields = new URLSearchParams(raw);
+      return {
+        username: fields.get("username"),
+        password: fields.get("password"),
+        display_name: fields.get("display_name"),
+        remember_session: fields.get("remember_session") === "on",
+      };
+    }
+    const value = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error();
     return value;
@@ -464,18 +476,19 @@ async function principal(request, db) {
   if (!result) throw new HttpError(401, "登入已到期，請重新登入");
   return result;
 }
-async function issueSession(request, db, userId) {
+async function issueSession(request, db, userId, remembered = false) {
   const raw = token();
   const old = sessionToken(request);
+  const seconds = remembered ? REMEMBER_SESSION_SECONDS : SESSION_SECONDS;
   await db.batch([
     db
       .prepare("DELETE FROM sessions WHERE expires_at<=? OR token_hash=?")
       .bind(now(), await digest(old)),
     db
       .prepare("INSERT INTO sessions VALUES (?,?,?,?)")
-      .bind(await digest(raw), userId, now() + SESSION_SECONDS, now()),
+      .bind(await digest(raw), userId, now() + seconds, now()),
   ]);
-  return cookie(request, raw, SESSION_SECONDS);
+  return cookie(request, raw, seconds);
 }
 async function member(db, band, user) {
   const result = await db
@@ -523,14 +536,16 @@ async function transaction(db, statements) {
     throw error;
   }
 }
-async function accountRoutes(request, env, path) {
+async function accountRoutes(request, env, path, formInput) {
   const db = env.DB;
   if (
     ["/api/auth/register", "/api/auth/login"].includes(path) &&
     request.method === "POST"
   ) {
     await limited(request, env);
-    const input = await body(request);
+    const input = formInput ?? await body(request);
+    if (input.remember_session !== undefined && typeof input.remember_session !== "boolean")
+      throw new HttpError(400, "保持登入設定格式錯誤");
     const name = username(input.username);
     const pass = password(input.password);
     let user;
@@ -571,7 +586,7 @@ async function accountRoutes(request, env, path) {
       };
     }
     return json({ user }, 200, {
-      "Set-Cookie": await issueSession(request, db, user.id),
+      "Set-Cookie": await issueSession(request, db, user.id, input.remember_session === true),
     });
   }
   if (
@@ -593,6 +608,8 @@ export default {
     const url = new URL(request.url),
       path = url.pathname,
       db = env.DB;
+    const nativeForm = request.method === "POST" &&
+      ["/api/auth/sign-in", "/api/auth/sign-up"].includes(path);
     if (!path.startsWith("/api/")) return env.ASSETS.fetch(request);
     try {
       if (path === "/api/health" && request.method === "GET") {
@@ -608,8 +625,18 @@ export default {
         request.headers.get("Origin") !== url.origin
       )
         throw new HttpError(403, "來源驗證失敗");
-      const account = await accountRoutes(request, env, path);
-      if (account) return account;
+      const account = await accountRoutes(
+        request, env,
+        nativeForm ? (path.endsWith("sign-up") ? "/api/auth/register" : "/api/auth/login") : path,
+        nativeForm ? await body(request, true) : undefined,
+      );
+      if (account) {
+        if (!nativeForm) return account;
+        return new Response(null, {
+          status: 303,
+          headers: { Location: "/", "Cache-Control": "no-store", "Set-Cookie": account.headers.get("Set-Cookie") },
+        });
+      }
       const user = await principal(request, db);
       if (path === "/api/me" && request.method === "GET") {
         const bands = await db
@@ -903,6 +930,16 @@ export default {
       throw new HttpError(404, "找不到此 API");
     } catch (error) {
       if (!error.status) console.error("API operation failed:", error.message);
+      if (nativeForm && error.status !== 403) {
+        const reason = ({ 400: "format", 401: "invalid", 409: "taken", 429: "rate" })[error.status] || "unavailable";
+        return new Response(null, {
+          status: 303,
+          headers: {
+            Location: "/?auth_error=" + reason + (path.endsWith("sign-up") ? "&auth_mode=register" : ""),
+            "Cache-Control": "no-store",
+          },
+        });
+      }
       return json(
         {
           error: error.status

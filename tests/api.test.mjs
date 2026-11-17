@@ -331,3 +331,53 @@ test("login rate limiting and logout cookie removal", async () => {
   const logout = await request("/api/logout", {});
   assert.match(logout.headers.get("set-cookie"), /Max-Age=0/);
 });
+
+test('native sign-in posts support autofill, fixed redirects and optional 30-day sessions', async () => {
+  const native = async (path, values, originHeader = origin) => mf.dispatchFetch(origin + path, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Origin: originHeader, 'CF-Connecting-IP': `198.18.0.${++ipCounter}` },
+    body: new URLSearchParams(values).toString()
+  });
+  const before = Math.floor(Date.now() / 1000);
+  const remembered = await native('/api/auth/sign-in', { username: 'owner', password: 'test-password-123', remember_session: 'on', next: 'https://evil.example' });
+  assert.equal(remembered.status, 303);
+  assert.equal(remembered.headers.get('location'), '/');
+  assert.match(remembered.headers.get('set-cookie'), /Max-Age=2592000/);
+  assert.match(remembered.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+  assert.match(remembered.headers.get('set-cookie'), /Secure/);
+  const active = remembered.headers.get('set-cookie').split(';')[0];
+  assert.equal((await request('/api/me', undefined, active)).status, 200);
+  const stored = await db.prepare('SELECT expires_at,created_at FROM sessions ORDER BY expires_at DESC LIMIT 1').first();
+  assert.equal(stored.expires_at - stored.created_at, 30 * 24 * 60 * 60);
+  assert.ok(stored.created_at >= before);
+  assert.equal((await request('/api/auth/logout', {}, active)).status, 200);
+  assert.equal((await request('/api/me', undefined, active)).status, 401);
+  const normal = await native('/api/auth/sign-in', { username: 'owner', password: 'test-password-123' });
+  assert.equal(normal.status, 303);
+  assert.match(normal.headers.get('set-cookie'), /Max-Age=28800/);
+  const invalid = await native('/api/auth/sign-in', { username: 'owner', password: 'wrong-secret-password', next: 'https://evil.example' });
+  assert.equal(invalid.status, 303);
+  assert.equal(invalid.headers.get('location'), '/?auth_error=invalid');
+  assert.equal(invalid.headers.get('set-cookie'), null);
+  assert.equal((await invalid.text()).includes('wrong-secret-password'), false);
+  assert.equal((await native('/api/auth/sign-in', { username: 'owner', password: 'test-password-123' }, 'https://evil.example')).status, 403);
+  const registered = await native('/api/auth/sign-up', { username: 'native-registration', password: 'Long native registration password', display_name: 'New member' });
+  assert.equal(registered.status, 303);
+  assert.equal(registered.headers.get('location'), '/');
+  const user = await (await request('/api/me', undefined, registered.headers.get('set-cookie').split(';')[0])).json();
+  assert.equal(user.user.username, 'native-registration');
+  assert.equal(user.bands.length, 0);
+  const duplicate = await native('/api/auth/sign-up', { username: 'native-registration', password: 'Long native registration password' });
+  assert.equal(duplicate.headers.get('location'), '/?auth_error=taken&auth_mode=register');
+});
+
+test('JSON clients retain the default expiry unless remember_session is explicitly true', async () => {
+  const login = { username: 'owner', password: 'test-password-123' };
+  const remembered = await request('/api/auth/login', { ...login, remember_session: true }, '');
+  assert.equal(remembered.status, 200);
+  assert.match(remembered.headers.get('set-cookie'), /Max-Age=2592000/);
+  const ordinary = await request('/api/auth/login', { ...login, remember_session: false }, '');
+  assert.match(ordinary.headers.get('set-cookie'), /Max-Age=28800/);
+  const invalid = await request('/api/auth/login', { ...login, remember_session: 'false' }, '');
+  assert.equal(invalid.status, 400);
+});

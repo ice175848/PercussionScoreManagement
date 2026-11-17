@@ -6,6 +6,7 @@ const App = {
     init() {
         this.cacheDOM();
         this.bindEvents();
+        this.restoreLoginAccount();
         this.loadAccount();
     },
 
@@ -87,7 +88,7 @@ const App = {
     clearAccount() {
         this.user = null; this.bands = []; this.bandId = null; this.role = null; this.clearData();
         for (const id of ['workspace-bar','account-controls','logout-btn','backup-controls','band-members-panel']) document.getElementById(id).classList.add('hidden');
-        document.getElementById('login-form').classList.remove('hidden');
+        document.getElementById('auth-forms').classList.remove('hidden');
         this.switchView('view-settings'); this.showLoader(false);
     },
 
@@ -95,7 +96,7 @@ const App = {
         try {
             const account = await this.request('/api/me');
             this.user = account.user; this.bands = account.bands;
-            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('auth-forms').classList.add('hidden');
             for (const id of ['workspace-bar','account-controls','logout-btn']) document.getElementById(id).classList.remove('hidden');
             document.getElementById('account-label').textContent = this.user.display_name + ' (@' + this.user.username + ')';
             const select = document.getElementById('band-select'); select.replaceChildren();
@@ -105,7 +106,7 @@ const App = {
             await this.switchBand(next);
             if (!next) { this.switchView('view-settings'); document.getElementById('connection-status').textContent = '已登入。請建立樂團、接受邀請，或認領既有樂團。'; }
             return true;
-        } catch (error) { this.clearAccount(); document.getElementById('connection-status').textContent = error.message; return false; }
+        } catch (error) { this.clearAccount(); document.getElementById('connection-status').textContent = this.authError || error.message; this.authError = ''; return false; }
     },
 
     async switchBand(id) {
@@ -132,21 +133,38 @@ const App = {
         } finally { select.disabled = false; this.showLoader(false); }
     },
 
-    async login(event) {
-        event.preventDefault();
-        const mode = event.submitter?.value === 'register' ? 'register' : 'login';
-        const controls = event.target.querySelectorAll('button'); controls.forEach(button => button.disabled = true);
+    restoreLoginAccount() {
+        const input = document.getElementById('login-username');
         try {
-            await this.request('/api/auth/' + mode, {
-                username: document.getElementById('login-username').value,
-                password: document.getElementById('login-password').value,
-                display_name: document.getElementById('login-display').value
-            });
-            document.getElementById('login-password').value = '';
-            await this.loadAccount();
-            this.switchView(this.bandId ? 'view-performances' : 'view-settings');
-        } catch (error) { document.getElementById('connection-status').textContent = error.message; }
-        finally { controls.forEach(button => button.disabled = false); }
+            const saved = localStorage.getItem('percussion-login-username');
+            if (saved && !input.value) input.value = saved;
+            document.getElementById('remember-username').checked = Boolean(saved);
+        } catch { /* Password-manager autofill remains available without local storage. */ }
+        const params = new URLSearchParams(location.search);
+        this.authError = ({
+            invalid: '帳號或密碼不正確，請重新輸入。',
+            taken: '此帳號無法使用，請選擇其他帳號。',
+            format: '請確認帳號格式與密碼長度（12–128 個字元）。',
+            rate: '嘗試過多，請稍候一分鐘再試。',
+            unavailable: '登入服務暫時無法使用，請稍後重試。'
+        })[params.get('auth_error')] || '';
+        if (params.get('auth_mode') === 'register') document.getElementById('register-details').open = true;
+    },
+
+    rememberLoginAccount() {
+        try {
+            if (document.getElementById('remember-username').checked) {
+                localStorage.setItem('percussion-login-username', document.getElementById('login-username').value.trim());
+            } else {
+                localStorage.removeItem('percussion-login-username');
+            }
+        } catch { /* Storage availability must not prevent signing in. */ }
+    },
+
+    prepareAuthSubmit() {
+        this.rememberLoginAccount();
+        // Allow the real POST and redirect so password managers can observe login.
+        // Keep the credential fields intact until the browser navigates away.
     },
 
     async logout() {
@@ -460,7 +478,7 @@ const App = {
             this.renderSummary(this.summarySelect.value);
             this.renderGlobalInstruments();
             document.getElementById('connection-status').textContent = '已連線至 ' + (this.bands.find(b => b.id === this.bandId)?.name || '樂團') + ' · ' + this.roles[this.role];
-            document.getElementById('login-form').classList.add('hidden');
+            document.getElementById('auth-forms').classList.add('hidden');
             document.getElementById('logout-btn').classList.remove('hidden');
             if (!document.querySelector('.view:not(.hidden)')) this.switchView('view-performances');
             return true;
